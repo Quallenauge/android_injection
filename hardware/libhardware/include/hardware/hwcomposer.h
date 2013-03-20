@@ -80,21 +80,25 @@ typedef struct hwc_color {
 
 typedef struct hwc_layer_1 {
     /*
-     * Initially set to HWC_FRAMEBUFFER, HWC_BACKGROUND, or
-     * HWC_FRAMEBUFFER_TARGET.
+     * compositionType is used to specify this layer's type and is set by either
+     * the hardware composer implementation, or by the caller (see below).
      *
-     * HWC_FRAMEBUFFER
-     *   Indicates the layer will be drawn into the framebuffer
-     *   using OpenGL ES. The HWC can toggle this value to HWC_OVERLAY to
-     *   indicate it will handle the layer.
+     *  This field is always reset to HWC_BACKGROUND or HWC_FRAMEBUFFER
+     *  before (*prepare)() is called when the HWC_GEOMETRY_CHANGED flag is
+     *  also set, otherwise, this field is preserved between (*prepare)()
+     *  calls.
      *
      * HWC_BACKGROUND
-     *   Indicates this is a special "background" layer. The only valid field
-     *   is backgroundColor. The HWC can toggle this value to HWC_FRAMEBUFFER
-     *   to indicate it CANNOT handle the background color.
+     *   Always set by the caller before calling (*prepare)(), this value
+     *   indicates this is a special "background" layer. The only valid field
+     *   is backgroundColor.
+     *   The HWC can toggle this value to HWC_FRAMEBUFFER to indicate it CANNOT
+     *   handle the background color.
+     *
      *
      * HWC_FRAMEBUFFER_TARGET
-     *   Indicates this layer is the framebuffer surface used as the target of
+     *   Always set by the caller before calling (*prepare)(), this value
+     *   indicates this layer is the framebuffer surface used as the target of
      *   OpenGL ES composition. If the HWC sets all other layers to HWC_OVERLAY
      *   or HWC_BACKGROUND, then no OpenGL ES composition will be done, and
      *   this layer should be ignored during set().
@@ -103,13 +107,38 @@ typedef struct hwc_layer_1 {
      *   HWC version is HWC_DEVICE_API_VERSION_1_1 or higher. In older versions,
      *   the OpenGL ES target surface is communicated by the (dpy, sur) fields
      *   in hwc_compositor_device_1_t.
+     *
+     *   This value cannot be set by the HWC implementation.
+     *
+     *
+     * HWC_FRAMEBUFFER
+     *   Set by the caller before calling (*prepare)() ONLY when the
+     *   HWC_GEOMETRY_CHANGED flag is also set.
+     *
+     *   Set by the HWC implementation during (*prepare)(), this indicates
+     *   that the layer will be drawn into the framebuffer using OpenGL ES.
+     *   The HWC can toggle this value to HWC_OVERLAY to indicate it will
+     *   handle the layer.
+     *
+     *
+     * HWC_OVERLAY
+     *   Set by the HWC implementation during (*prepare)(), this indicates
+     *   that the layer will be handled by the HWC (ie: it must not be
+     *   composited with OpenGL ES).
+     *
      */
     int32_t compositionType;
 
-    /* see hwc_layer_t::hints above */
+    /*
+     * hints is bit mask set by the HWC implementation during (*prepare)().
+     * It is preserved between (*prepare)() calls, unless the
+     * HWC_GEOMETRY_CHANGED flag is set, in which case it is reset to 0.
+     *
+     * see hwc_layer_t::hints
+     */
     uint32_t hints;
 
-    /* see hwc_layer_t::flags above */
+    /* see hwc_layer_t::flags */
     uint32_t flags;
 
     union {
@@ -195,83 +224,6 @@ typedef struct hwc_layer_1 {
 
 } hwc_layer_1_t;
 
-#ifdef OMAP_ENHANCEMENT
-
-/*
- * HWC extension operations, see HWC_EXTENDED_API
- */
-enum {
-    /*
-     * Get extra layer data
-     * @params
-     * data: hwc_layer_extended_t
-     */
-    HWC_EXTENDED_OP_LAYERDATA = 1,
-
-    /*
-     * Returns layer stack identifier
-     * @params
-     * data: hwc_layer_stack_t
-     */
-    HWC_EXTENDED_OP_LAYERSTACK = 2,
-
-    /*
-     * Returns display information
-     * @params
-     * data: hwc_display_info_t
-     */
-    HWC_EXTENDED_OP_DISPLAYINFO = 3,
-};
-
-typedef struct hwc_layer_extended {
-    /*
-     * Layer index (input)
-     */
-    uint32_t idx;
-
-    /*
-     * Display index (input)
-     */
-    int32_t dpy;
-
-    /*
-     * Provides a unique identity for this layer (output)
-     */
-    uint32_t identity;
-} hwc_layer_extended_t;
-
-typedef struct hwc_layer_stack {
-    /*
-     * Display index (input)
-     */
-    int32_t dpy;
-
-    /*
-     * Layer stack identifier for this display (output)
-     */
-    uint32_t stack;
-} hwc_layer_stack_t;
-
-typedef struct hwc_display_info {
-    /*
-     * Display index (input)
-     */
-    int32_t dpy;
-
-    /*
-     * Display resolution (output)
-     */
-    uint32_t width;
-    uint32_t height;
-} hwc_display_info_t;
-
-typedef struct hwc_layer_list_extended {
-    size_t numHwLayers;
-    hwc_layer_extended_t hwLayers[0];
-} hwc_layer_list_extended_t;
-
-#endif
-
 /* This represents a display, typically an EGLDisplay object */
 typedef void* hwc_display_t;
 
@@ -295,7 +247,7 @@ enum {
      * can use functions in the extended ABI.
      */
     HWC_EXTENDED_API = 0x80000000,
-#endif
+#endif    
 };
 
 /*
@@ -418,7 +370,7 @@ typedef struct hwc_procs {
      * HWC_DEVICE_API_VERSION_1_0.
      */
     void (*hotplug)(const struct hwc_procs* procs, int disp, int connected);
-
+    
 #ifdef OMAP_ENHANCEMENT
     /*
      * (*extension_cb)() is called by the h/w composer HAL. Its purpose is
@@ -442,6 +394,7 @@ typedef struct hwc_procs {
                         int size);
 
 #endif
+
 } hwc_procs_t;
 
 
@@ -464,11 +417,14 @@ typedef struct hwc_composer_device_1 {
      * either HWC_FRAMEBUFFER or HWC_OVERLAY. In the former case, the
      * composition for the layer is handled by SurfaceFlinger with OpenGL ES,
      * in the later case, the HWC will have to handle the layer's composition.
+     * compositionType and hints are preserved between (*prepare)() calles
+     * unless the HWC_GEOMETRY_CHANGED flag is set.
      *
      * (*prepare)() is called with HWC_GEOMETRY_CHANGED to indicate that the
      * list's geometry has changed, that is, when more than just the buffer's
      * handles have been updated. Typically this happens (but is not limited to)
-     * when a window is added, removed, resized or moved.
+     * when a window is added, removed, resized or moved. In this case
+     * compositionType and hints are reset to their default value.
      *
      * For HWC 1.0, numDisplays will always be one, and displays[0] will be
      * non-NULL.
@@ -653,6 +609,39 @@ static inline int hwc_close_1(hwc_composer_device_1_t* device) {
 }
 
 /*****************************************************************************/
+
+#ifdef OMAP_ENHANCEMENT
+
+/*
+ * HWC extension operations, see HWC_EXTENDED_API
+ */
+enum {
+    /*
+     * Get extra layer data
+     * @params
+     * data: hwc_layer_extended_t
+     */
+    HWC_EXTENDED_OP_LAYERDATA = 1,
+};
+
+typedef struct hwc_layer_extended {
+    /*
+     * Layer index (input)
+     */
+    uint32_t idx;
+
+    /*
+     * Provides a unique identity for this layer (output)
+     */
+    uint32_t identity;
+} hwc_layer_extended_t;
+
+typedef struct hwc_layer_list_extended {
+    size_t numHwLayers;
+    hwc_layer_extended_t hwLayers[0];
+} hwc_layer_list_extended_t;
+
+#endif
 
 #if !HWC_REMOVE_DEPRECATED_VERSIONS
 #include <hardware/hwcomposer_v0.h>

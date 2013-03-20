@@ -87,10 +87,20 @@ enum {
     CAMERA_MSG_PREVIEW_METADATA = 0x0400, // dataCallback
     // Notify on autofocus start and stop. This is useful in continuous
     // autofocus - FOCUS_MODE_CONTINUOUS_VIDEO and FOCUS_MODE_CONTINUOUS_PICTURE.
+#if defined(QCOM_ICS_COMPAT) && defined(QCOM_HARDWARE)
+    CAMERA_MSG_STATS_DATA       = 0x800,
+    CAMERA_MSG_FOCUS_MOVE = 0x1000,       // notifyCallback
+#elif defined(OMAP_ICS_CAMERA) && defined(OMAP_ENHANCEMENT)
+    CAMERA_MSG_COMPRESSED_BURST_IMAGE = 0x0800, //dataCallback
+    CAMERA_MSG_RAW_BURST = 0x1000,        // dataCallback
+#else
     CAMERA_MSG_FOCUS_MOVE = 0x0800,       // notifyCallback
-#ifdef OMAP_ENHANCEMENT_BURST_CAPTURE
+#ifdef QCOM_HARDWARE
+    CAMERA_MSG_STATS_DATA       = 0x1000,
+#elif defined(OMAP_ENHANCEMENT) && defined(OMAP_ENHANCEMENT_BURST_CAPTURE)
     CAMERA_MSG_COMPRESSED_BURST_IMAGE = 0x1000, // dataCallback
     CAMERA_MSG_RAW_BURST = 0x2000,        // dataCallback
+#endif
 #endif
     CAMERA_MSG_ALL_MSGS = 0xFFFF
 };
@@ -151,6 +161,15 @@ enum {
      */
     CAMERA_CMD_STOP_FACE_DETECTION = 7,
 
+#if defined(QCOM_ICS_COMPAT) && defined(QCOM_HARDWARE)
+    CAMERA_CMD_HISTOGRAM_ON     = 8,
+    CAMERA_CMD_HISTOGRAM_OFF     = 9,
+    CAMERA_CMD_HISTOGRAM_SEND_DATA  = 10,
+    /* Unused by the older blobs, but referenced */
+    CAMERA_CMD_ENABLE_FOCUS_MOVE_MSG = 11,
+    CAMERA_CMD_PING = 12,
+    CAMERA_CMD_SET_VIDEO_BUFFER_COUNT = 13,
+#else
     /**
      * Enable/disable focus move callback (CAMERA_MSG_FOCUS_MOVE). Passing
      * arg1 = 0 will disable, while passing arg1 = 1 will enable the callback.
@@ -167,7 +186,7 @@ enum {
      * can silently finish itself or show a dialog.
      */
     CAMERA_CMD_PING = 9,
-
+ 
     /**
      * Configure the number of video buffers used for recording. The intended
      * video buffer count for recording is passed as arg1, which must be
@@ -177,24 +196,8 @@ enum {
      * command also returns a BAD_VALUE error if the intended video buffer
      * count is non-positive or too big to be realized.
      */
-    CAMERA_CMD_SET_VIDEO_BUFFER_COUNT = 10,
-
-#ifdef OMAP_ENHANCEMENT_VTC
-    /**
-     * Camera Preview deinitialization.
-     * This is a TI enhancement for supporting tunneling during VTC.
-     * This command causes the camera component to move from loaded to idle state.
-     */
-    CAMERA_CMD_PREVIEW_INITIALIZATION = 256,
-
-    /**
-     * Camera Preview initialization.
-     * This is a TI enhancement for supporting tunneling during VTC.
-     * This command causes the camera component to move from executing to idle state.
-     */
-    CAMERA_CMD_PREVIEW_DEINITIALIZATION = 257,
+    CAMERA_CMD_SET_VIDEO_BUFFER_COUNT = 10,    
 #endif
-
 #ifdef OMAP_ENHANCEMENT
     /**
      * Extend camera_device_ops_t with extra callbacks.
@@ -202,6 +205,7 @@ enum {
      */
     CAMERA_CMD_SETUP_EXTENDED_OPERATIONS = 1024,
 #endif
+
 };
 
 /** camera fatal errors */
@@ -224,6 +228,15 @@ enum {
     /** The facing of the camera is the same as that of the screen. */
     CAMERA_FACING_FRONT = 1
 };
+
+#ifdef QCOM_HARDWARE
+enum {
+    CAMERA_SUPPORT_MODE_2D = 0x01, /* Camera Sensor supports 2D mode. */
+    CAMERA_SUPPORT_MODE_3D = 0x02, /* Camera Sensor supports 3D mode. */
+    CAMERA_SUPPORT_MODE_NONZSL = 0x04, /* Camera Sensor in NON-ZSL mode. */
+    CAMERA_SUPPORT_MODE_ZSL = 0x08 /* Camera Sensor supports ZSL mode. */
+};
+#endif
 
 enum {
     /** Hardware face detection. It does not use much CPU. */
@@ -298,18 +311,6 @@ typedef struct camera_frame_metadata {
      * An array of the detected faces. The length is number_of_faces.
      */
     camera_face_t *faces;
-
-#ifdef OMAP_ENHANCEMENT_CPCAM
-    /**
-     * Exposure time in microseconds
-     */
-    int32_t exposure_time;
-
-    /**
-     * Analog gain (EV * 100)
-     */
-    int32_t analog_gain;
-#endif
 } camera_frame_metadata_t;
 
 __END_DECLS

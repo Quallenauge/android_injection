@@ -100,8 +100,7 @@ typedef struct preview_stream_extended_ops {
 #ifdef OMAP_ENHANCEMENT_CPCAM
     /** tap in functions */
     int (*update_and_get_buffer)(struct preview_stream_ops* w,
-            buffer_handle_t** buffer, int *stride, int *slot);
-    int (*release_buffer)(struct preview_stream_ops* w, int slot);
+            buffer_handle_t** buffer, int *stride);
     int (*get_buffer_dimension)(struct preview_stream_ops *w, int *width, int *height);
     int (*get_buffer_format)(struct preview_stream_ops *w, int *format);
 

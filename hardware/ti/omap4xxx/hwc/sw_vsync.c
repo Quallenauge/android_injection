@@ -62,7 +62,8 @@ static void *vsync_loop(void *data)
     bool reset_timers = true;
 
     setpriority(PRIO_PROCESS, 0, HAL_PRIORITY_URGENT_DISPLAY);
-
+    ALOGI(">>vsync_loop()");
+    
     for (;;) {
         pthread_mutex_lock(&vsync_mutex);
         period = vsync_rate; /* re-read rate */
@@ -90,6 +91,7 @@ static void *vsync_loop(void *data)
             hwc_dev->procs->vsync(hwc_dev->procs, 0, next_vsync);
         }
     }
+    ALOGI("<<vsync_loop()");
     return NULL;
 }
 
@@ -122,12 +124,15 @@ void start_sw_vsync()
 {
     char refresh_rate[PROPERTY_VALUE_MAX];
     property_get("persist.hwc.sw_vsync_rate", refresh_rate, "60");
+    
+//    ALOGI(">>start_sw_vsync()");
 
     pthread_mutex_lock(&vsync_mutex);
     int rate = atoi(refresh_rate);
     if (rate <= 0)
         rate = 60;
     vsync_rate = 1000000000 / rate;
+//    ALOGI("Calculated vsync_rate=%d", vsync_rate);
     if (vsync_loop_active) {
         pthread_mutex_unlock(&vsync_mutex);
         return;
@@ -135,10 +140,12 @@ void start_sw_vsync()
     vsync_loop_active = true;
     pthread_mutex_unlock(&vsync_mutex);
     pthread_cond_signal(&vsync_cond);
+//    ALOGI("<<start_sw_vsync()");
 }
 
 void stop_sw_vsync()
 {
+//    ALOGI(">>stop_sw_vsync()");  
     pthread_mutex_lock(&vsync_mutex);
     if (!vsync_loop_active) {
         pthread_mutex_unlock(&vsync_mutex);
@@ -147,4 +154,5 @@ void stop_sw_vsync()
     vsync_loop_active = false;
     pthread_mutex_unlock(&vsync_mutex);
     pthread_cond_signal(&vsync_cond);
+//    ALOGI("<<stop_sw_vsync()");  
 }

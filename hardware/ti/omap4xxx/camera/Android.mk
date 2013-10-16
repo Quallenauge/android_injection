@@ -60,7 +60,8 @@ TI_CAMERAHAL_COMMON_INCLUDES := \
 ifdef ANDROID_API_JB_OR_LATER
 TI_CAMERAHAL_COMMON_INCLUDES += \
     frameworks/native/include/media/hardware \
-    system/core/include
+    system/core/include \
+    system/media/camera/include
 else
 TI_CAMERAHAL_COMMON_INCLUDES += \
     frameworks/base/include/media/stagefright \

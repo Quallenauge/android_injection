@@ -31,13 +31,10 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/un.h>
-#include <sys/personality.h>
 
-#ifdef HAVE_SELINUX
 #include <selinux/selinux.h>
 #include <selinux/label.h>
 #include <selinux/android.h>
-#endif
 
 #include <libgen.h>
 
@@ -48,6 +45,10 @@
 #include <termios.h>
 
 #include <sys/system_properties.h>
+
+#ifndef INITLOGO
+#include <linux/kd.h>
+#endif
 
 #include "devices.h"
 #include "init.h"
@@ -61,10 +62,8 @@
 #include "ueventd.h"
 #include "watchdogd.h"
 
-#ifdef HAVE_SELINUX
 struct selabel_handle *sehandle;
 struct selabel_handle *sehandle_prop;
-#endif
 
 static int property_triggers_enabled = 0;
 
@@ -84,9 +83,7 @@ static unsigned revision = 0;
 static char qemu[32];
 static char battchg_pause[32];
 
-#ifdef HAVE_SELINUX
 static int selinux_enabled = 1;
-#endif
 
 static struct action *cur_action = NULL;
 static struct command *cur_command = NULL;
@@ -112,21 +109,105 @@ static unsigned emmc_boot = 0;
 
 static unsigned charging_mode = 0;
 
+static const char *expand_environment(const char *val)
+{
+    int n;
+    const char *prev_pos = NULL, *copy_pos;
+    size_t len, prev_len = 0, copy_len;
+    char *expanded;
+
+    /* Basic expansion of environment variable; for now
+       we only assume 1 expansion at the start of val
+       and that it is marked as ${var} */
+    if (!val) {
+        return NULL;
+    }
+
+    if ((val[0] == '$') && (val[1] == '{')) {
+        for (n = 0; n < 31; n++) {
+            if (ENV[n]) {
+                len = strcspn(ENV[n], "=");
+                if (!strncmp(&val[2], ENV[n], len)
+                      && (val[2 + len] == '}')) {
+                    /* Matched existing env */
+                    prev_pos = &ENV[n][len + 1];
+                    prev_len = strlen(prev_pos);
+                    break;
+                }
+            }
+        }
+        copy_pos = index(val, '}');
+        if (copy_pos) {
+            copy_pos++;
+            copy_len = strlen(copy_pos);
+        } else {
+            copy_pos = val;
+            copy_len = strlen(val);
+        }
+    } else {
+        copy_pos = val;
+        copy_len = strlen(val);
+    }
+
+    len = prev_len + copy_len + 1;
+    expanded = malloc(len);
+    if (expanded) {
+        if (prev_pos) {
+            snprintf(expanded, len, "%s%s", prev_pos, copy_pos);
+        } else {
+            snprintf(expanded, len, "%s", copy_pos);
+        }
+    }
+
+    /* caller free */
+    return expanded;
+}
+
 /* add_environment - add "key=value" to the current environment */
 int add_environment(const char *key, const char *val)
 {
     int n;
+    const char *expanded;
+
+    expanded = expand_environment(val);
+    if (!expanded) {
+        goto failed;
+    }
 
     for (n = 0; n < 31; n++) {
         if (!ENV[n]) {
-            size_t len = strlen(key) + strlen(val) + 2;
+            size_t len = strlen(key) + strlen(expanded) + 2;
             char *entry = malloc(len);
-            snprintf(entry, len, "%s=%s", key, val);
+            if (!entry) {
+                goto failed_cleanup;
+            }
+            snprintf(entry, len, "%s=%s", key, expanded);
+            free((char *)expanded);
             ENV[n] = entry;
             return 0;
+        } else {
+            char *entry;
+            size_t len = strlen(key);
+            if(!strncmp(ENV[n], key, len) && ENV[n][len] == '=') {
+                len = len + strlen(expanded) + 2;
+                entry = malloc(len);
+                if (!entry) {
+                    goto failed_cleanup;
+                }
+
+                free((char *)ENV[n]);
+                snprintf(entry, len, "%s=%s", key, expanded);
+                free((char *)expanded);
+                ENV[n] = entry;
+                return 0;
+            }
         }
     }
 
+failed_cleanup:
+    free((char *)expanded);
+failed:
+    ERROR("Fail to add env variable: %s. Not enough memory!", key);
     return 1;
 }
 
@@ -174,10 +255,9 @@ void service_start(struct service *svc, const char *dynamic_args)
     pid_t pid;
     int needs_console;
     int n;
-#ifdef HAVE_SELINUX
     char *scon = NULL;
     int rc;
-#endif
+
         /* starting a service removes it from the disabled or reset
          * state and immediately takes it out of the restarting
          * state if it was in there
@@ -214,33 +294,39 @@ void service_start(struct service *svc, const char *dynamic_args)
         return;
     }
 
-#ifdef HAVE_SELINUX
     if (is_selinux_enabled() > 0) {
-        char *mycon = NULL, *fcon = NULL;
+        if (svc->seclabel) {
+            scon = strdup(svc->seclabel);
+            if (!scon) {
+                ERROR("Out of memory while starting '%s'\n", svc->name);
+                return;
+            }
+        } else {
+            char *mycon = NULL, *fcon = NULL;
 
-        INFO("computing context for service '%s'\n", svc->args[0]);
-        rc = getcon(&mycon);
-        if (rc < 0) {
-            ERROR("could not get context while starting '%s'\n", svc->name);
-            return;
-        }
+            INFO("computing context for service '%s'\n", svc->args[0]);
+            rc = getcon(&mycon);
+            if (rc < 0) {
+                ERROR("could not get context while starting '%s'\n", svc->name);
+                return;
+            }
 
-        rc = getfilecon(svc->args[0], &fcon);
-        if (rc < 0) {
-            ERROR("could not get context while starting '%s'\n", svc->name);
+            rc = getfilecon(svc->args[0], &fcon);
+            if (rc < 0) {
+                ERROR("could not get context while starting '%s'\n", svc->name);
+                freecon(mycon);
+                return;
+            }
+
+            rc = security_compute_create(mycon, fcon, string_to_security_class("process"), &scon);
             freecon(mycon);
-            return;
-        }
-
-        rc = security_compute_create(mycon, fcon, string_to_security_class("process"), &scon);
-        freecon(mycon);
-        freecon(fcon);
-        if (rc < 0) {
-            ERROR("could not get context while starting '%s'\n", svc->name);
-            return;
+            freecon(fcon);
+            if (rc < 0) {
+                ERROR("could not get context while starting '%s'\n", svc->name);
+                return;
+            }
         }
     }
-#endif
 
     NOTICE("starting '%s'\n", svc->name);
 
@@ -253,21 +339,6 @@ void service_start(struct service *svc, const char *dynamic_args)
         int fd, sz;
 
         umask(077);
-#ifdef __arm__
-        /*
-         * b/7188322 - Temporarily revert to the compat memory layout
-         * to avoid breaking third party apps.
-         *
-         * THIS WILL GO AWAY IN A FUTURE ANDROID RELEASE.
-         *
-         * http://git.kernel.org/?p=linux/kernel/git/torvalds/linux-2.6.git;a=commitdiff;h=7dbaa466
-         * changes the kernel mapping from bottom up to top-down.
-         * This breaks some programs which improperly embed
-         * an out of date copy of Android's linker.
-         */
-        int current = personality(0xffffFFFF);
-        personality(current | ADDR_COMPAT_LAYOUT);
-#endif
         if (properties_inited()) {
             get_property_workspace(&fd, &sz);
             sprintf(tmp, "%d,%d", dup(fd), sz);
@@ -277,26 +348,19 @@ void service_start(struct service *svc, const char *dynamic_args)
         for (ei = svc->envvars; ei; ei = ei->next)
             add_environment(ei->name, ei->value);
 
-#ifdef HAVE_SELINUX
-        setsockcreatecon(scon);
-#endif
-
         for (si = svc->sockets; si; si = si->next) {
             int socket_type = (
                     !strcmp(si->type, "stream") ? SOCK_STREAM :
                         (!strcmp(si->type, "dgram") ? SOCK_DGRAM : SOCK_SEQPACKET));
             int s = create_socket(si->name, socket_type,
-                                  si->perm, si->uid, si->gid);
+                                  si->perm, si->uid, si->gid, si->socketcon ?: scon);
             if (s >= 0) {
                 publish_socket(si->name, s);
             }
         }
 
-#ifdef HAVE_SELINUX
         freecon(scon);
         scon = NULL;
-        setsockcreatecon(NULL);
-#endif
 
         if (svc->ioprio_class != IoSchedClass_NONE) {
             if (android_set_ioprio(getpid(), svc->ioprio_class, svc->ioprio_pri)) {
@@ -342,15 +406,12 @@ void service_start(struct service *svc, const char *dynamic_args)
                 _exit(127);
             }
         }
-
-#ifdef HAVE_SELINUX
         if (svc->seclabel) {
             if (is_selinux_enabled() > 0 && setexeccon(svc->seclabel) < 0) {
                 ERROR("cannot setexeccon('%s'): %s\n", svc->seclabel, strerror(errno));
                 _exit(127);
             }
         }
-#endif
 
         if (!dynamic_args) {
             ERROR("No dynamic_args: Try to execve('%s'): args: %s\n", svc->args[0], svc->args);
@@ -380,9 +441,7 @@ void service_start(struct service *svc, const char *dynamic_args)
         _exit(127);
     }
 
-#ifdef HAVE_SELINUX
     freecon(scon);
-#endif
 
     if (pid < 0) {
         ERROR("failed to start '%s'\n", svc->name);
@@ -610,6 +669,7 @@ static int console_init_action(int nargs, char **args)
         have_console = 1;
     close(fd);
 
+#ifdef INITLOGO
     if( load_565rle_image(INIT_IMAGE_FILE) ) {
         fd = open("/dev/tty0", O_WRONLY);
         if (fd >= 0) {
@@ -633,6 +693,13 @@ static int console_init_action(int nargs, char **args)
             close(fd);
         }
     }
+#else
+    fd = open("/dev/tty0", O_RDWR | O_SYNC);
+    if (fd >= 0) {
+        ioctl(fd, KDSETMODE, KD_GRAPHICS);
+        close(fd);
+    }
+#endif
     return 0;
 }
 
@@ -645,11 +712,9 @@ static void import_kernel_nv(char *name, int for_emulator)
     *value++ = 0;
     if (name_len == 0) return;
 
-#ifdef HAVE_SELINUX
     if (!strcmp(name,"selinux")) {
         selinux_enabled = atoi(value);
     }
-#endif
 
     if (for_emulator) {
         /* in the emulator, export any kernel option with the
@@ -680,6 +745,10 @@ static void import_kernel_nv(char *name, int for_emulator)
         cnt = snprintf(prop, sizeof(prop), "ro.boot.%s", boot_prop_name);
         if (cnt < PROP_NAME_MAX)
             property_set(prop, value);
+#ifdef HAS_SEMC_BOOTLOADER
+    } else if (!strcmp(name,"serialno")) {
+        property_set("ro.boot.serialno", value);
+#endif
     }
 }
 
@@ -807,9 +876,8 @@ static int bootchart_init_action(int nargs, char **args)
 }
 #endif
 
-#ifdef HAVE_SELINUX
 static const struct selinux_opt seopts_prop[] = {
-        { SELABEL_OPT_PATH, "/data/system/property_contexts" },
+        { SELABEL_OPT_PATH, "/data/security/property_contexts" },
         { SELABEL_OPT_PATH, "/property_contexts" },
         { 0, NULL }
 };
@@ -866,24 +934,22 @@ int audit_callback(void *data, security_class_t cls, char *buf, size_t len)
     return 0;
 }
 
-#endif
-
 static int charging_mode_booting(void)
 {
 #ifndef BOARD_CHARGING_MODE_BOOTING_LPM
-	return 0;
+    return 0;
 #else
-	int f;
-	char cmb;
-	f = open(BOARD_CHARGING_MODE_BOOTING_LPM, O_RDONLY);
-	if (f < 0)
-		return 0;
+    int f;
+    char cmb;
+    f = open(BOARD_CHARGING_MODE_BOOTING_LPM, O_RDONLY);
+    if (f < 0)
+        return 0;
 
-	if (1 != read(f, (void *)&cmb,1))
-		return 0;
+    if (1 != read(f, (void *)&cmb,1))
+        return 0;
 
-	close(f);
-	return ('1' == cmb);
+    close(f);
+    return ('1' == cmb);
 #endif
 }
 
@@ -940,7 +1006,6 @@ int main(int argc, char **argv)
 
     process_kernel_cmdline();
 
-#ifdef HAVE_SELINUX
     union selinux_callback cb;
     cb.func_log = klog_write;
     selinux_set_callback(SELINUX_CB_LOG, cb);
@@ -965,7 +1030,7 @@ int main(int argc, char **argv)
      */
     restorecon("/dev");
     restorecon("/dev/socket");
-#endif
+    restorecon("/dev/__properties__");
 
     is_charger = !strcmp(bootmode, "charger");
 
@@ -1004,11 +1069,11 @@ int main(int argc, char **argv)
     /* skip mounting filesystems in charger mode */
     if (!is_charger) {
         action_for_each_trigger("early-fs", action_add_queue_tail);
-    if(emmc_boot) {
-        action_for_each_trigger("emmc-fs", action_add_queue_tail);
-    } else {
-        action_for_each_trigger("fs", action_add_queue_tail);
-    }
+        if(emmc_boot) {
+            action_for_each_trigger("emmc-fs", action_add_queue_tail);
+        } else {
+            action_for_each_trigger("fs", action_add_queue_tail);
+        }
         action_for_each_trigger("post-fs", action_add_queue_tail);
         action_for_each_trigger("post-fs-data", action_add_queue_tail);
     }

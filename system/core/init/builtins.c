@@ -35,11 +35,10 @@
 #include <cutils/partition_utils.h>
 #include <sys/system_properties.h>
 #include <fs_mgr.h>
+#include <fts.h>
 
-#ifdef HAVE_SELINUX
 #include <selinux/selinux.h>
 #include <selinux/label.h>
-#endif
 
 #include "init.h"
 #include "keywords.h"
@@ -79,61 +78,47 @@ static int write_file(const char *path, const char *value)
     }
 }
 
-static int _open(const char *path)
-{
-    int fd;
-
-    fd = open(path, O_RDONLY | O_NOFOLLOW);
-    if (fd < 0)
-        fd = open(path, O_WRONLY | O_NOFOLLOW);
-
-    return fd;
-}
 
 static int _chown(const char *path, unsigned int uid, unsigned int gid)
 {
-    int fd;
     int ret;
 
-    fd = _open(path);
-    if (fd < 0) {
-        return -1;
-    }
+    struct stat p_statbuf;
 
-    ret = fchown(fd, uid, gid);
+    ret = lstat(path, &p_statbuf);
     if (ret < 0) {
-        int errno_copy = errno;
-        close(fd);
-        errno = errno_copy;
         return -1;
     }
 
-    close(fd);
+    if (S_ISLNK(p_statbuf.st_mode) == 1) {
+        errno = EINVAL;
+        return -1;
+    }
 
-    return 0;
+    ret = chown(path, uid, gid);
+
+    return ret;
 }
 
 static int _chmod(const char *path, mode_t mode)
 {
-    int fd;
     int ret;
 
-    fd = _open(path);
-    if (fd < 0) {
-        return -1;
-    }
+    struct stat p_statbuf;
 
-    ret = fchmod(fd, mode);
+    ret = lstat(path, &p_statbuf);
     if (ret < 0) {
-        int errno_copy = errno;
-        close(fd);
-        errno = errno_copy;
         return -1;
     }
 
-    close(fd);
+    if (S_ISLNK(p_statbuf.st_mode) == 1) {
+        errno = EINVAL;
+        return -1;
+    }
 
-    return 0;
+    ret = chmod(path, mode);
+
+    return ret;
 }
 
 static int insmod(const char *filename, char *options)
@@ -571,6 +556,7 @@ int do_mount_all(int nargs, char **args)
     int child_ret = -1;
     int status;
     const char *prop;
+    struct fstab *fstab;
 
     if (nargs != 2) {
         return -1;
@@ -594,7 +580,9 @@ int do_mount_all(int nargs, char **args)
     } else if (pid == 0) {
         /* child, call fs_mgr_mount_all() */
         klog_set_level(6);  /* So we can see what fs_mgr_mount_all() does */
-        child_ret = fs_mgr_mount_all(args[1]);
+        fstab = fs_mgr_read_fstab(args[1]);
+        child_ret = fs_mgr_mount_all(fstab);
+        fs_mgr_free_fstab(fstab);
         if (child_ret == -1) {
             ERROR("fs_mgr_mount_all returned an error\n");
         }
@@ -620,24 +608,20 @@ int do_mount_all(int nargs, char **args)
 }
 
 int do_setcon(int nargs, char **args) {
-#ifdef HAVE_SELINUX
     if (is_selinux_enabled() <= 0)
         return 0;
     if (setcon(args[1]) < 0) {
         return -errno;
     }
-#endif
     return 0;
 }
 
 int do_setenforce(int nargs, char **args) {
-#ifdef HAVE_SELINUX
     if (is_selinux_enabled() <= 0)
         return 0;
     if (security_setenforce(atoi(args[1])) < 0) {
         return -errno;
     }
-#endif
     return 0;
 }
 
@@ -827,6 +811,47 @@ int do_chown(int nargs, char **args) {
     } else if (nargs == 4) {
         if (_chown(args[3], decode_uid(args[1]), decode_uid(args[2])) < 0)
             return -errno;
+    } else if (nargs == 5) {
+        int ret = 0;
+        int ftsflags = FTS_PHYSICAL;
+        FTS *fts;
+        FTSENT *ftsent;
+        char *options = args[1];
+        uid_t uid = decode_uid(args[2]);
+        uid_t gid = decode_uid(args[3]);
+        char * path_argv[] = {args[4], NULL};
+        if (strcmp(options, "-R")) {
+            ERROR("do_chown: Invalid argument: %s\n", args[1]);
+            return -EINVAL;
+        }
+        fts = fts_open(path_argv, ftsflags, NULL);
+        if (!fts) {
+            ERROR("do_chown: Error traversing hierarchy starting at %s\n", path_argv[0]);
+            return -errno;
+        }
+        while ((ftsent = fts_read(fts))) {
+            switch (ftsent->fts_info) {
+            case FTS_DP:
+            case FTS_SL:
+                break;
+            case FTS_DNR:
+            case FTS_ERR:
+            case FTS_NS:
+                ERROR("do_chown: Could not access %s\n", ftsent->fts_path);
+                fts_set(fts, ftsent, FTS_SKIP);
+                ret = -errno;
+                break;
+            default:
+                if (_chown(ftsent->fts_accpath, uid, gid) < 0) {
+                    ret = -errno;
+                    fts_set(fts, ftsent, FTS_SKIP);
+                }
+                break;
+            }
+        }
+        fts_close(fts);
+        if (ret)
+            return ret;
     } else {
         return -1;
     }
@@ -865,36 +890,30 @@ int do_restorecon(int nargs, char **args) {
 }
 
 int do_setsebool(int nargs, char **args) {
-#ifdef HAVE_SELINUX
-    SELboolean *b = alloca(nargs * sizeof(SELboolean));
-    char *v;
-    int i;
+    const char *name = args[1];
+    const char *value = args[2];
+    SELboolean b;
+    int ret;
 
     if (is_selinux_enabled() <= 0)
         return 0;
 
-    for (i = 1; i < nargs; i++) {
-        char *name = args[i];
-        v = strchr(name, '=');
-        if (!v) {
-            ERROR("setsebool: argument %s had no =\n", name);
-            return -EINVAL;
-        }
-        *v++ = 0;
-        b[i-1].name = name;
-        if (!strcmp(v, "1") || !strcasecmp(v, "true") || !strcasecmp(v, "on"))
-            b[i-1].value = 1;
-        else if (!strcmp(v, "0") || !strcasecmp(v, "false") || !strcasecmp(v, "off"))
-            b[i-1].value = 0;
-        else {
-            ERROR("setsebool: invalid value %s\n", v);
-            return -EINVAL;
-        }
+    b.name = name;
+    if (!strcmp(value, "1") || !strcasecmp(value, "true") || !strcasecmp(value, "on"))
+        b.value = 1;
+    else if (!strcmp(value, "0") || !strcasecmp(value, "false") || !strcasecmp(value, "off"))
+        b.value = 0;
+    else {
+        ERROR("setsebool: invalid value %s\n", value);
+        return -EINVAL;
     }
 
-    if (security_set_boolean_list(nargs - 1, b, 0) < 0)
-        return -errno;
-#endif
+    if (security_set_boolean_list(1, &b, 0) < 0) {
+        ret = -errno;
+        ERROR("setsebool: could not set %s to %s\n", name, value);
+        return ret;
+    }
+
     return 0;
 }
 

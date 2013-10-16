@@ -55,6 +55,7 @@ struct socketinfo {
     uid_t uid;
     gid_t gid;
     int perm;
+    const char *socketcon;
 };
 
 struct svcenvinfo {
@@ -97,9 +98,7 @@ struct service {
     gid_t supp_gids[NR_SVC_SUPP_GIDS];
     size_t nr_supp_gids;
 
-#ifdef HAVE_SELINUX
     char *seclabel;
-#endif
 
     struct socketinfo *sockets;
     struct svcenvinfo *envvars;
@@ -134,14 +133,14 @@ void service_reset(struct service *svc);
 void service_start(struct service *svc, const char *dynamic_args);
 void property_changed(const char *name, const char *value);
 
+#ifdef INITLOGO
 #define INIT_IMAGE_FILE	"/initlogo.rle"
 
 int load_565rle_image( char *file_name );
+#endif
 
-#ifdef HAVE_SELINUX
 extern struct selabel_handle *sehandle;
 extern struct selabel_handle *sehandle_prop;
 extern int selinux_reload_policy(void);
-#endif
 
 #endif	/* _INIT_INIT_H */

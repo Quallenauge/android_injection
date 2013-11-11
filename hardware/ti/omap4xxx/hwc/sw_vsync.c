@@ -26,12 +26,8 @@
 #include <cutils/log.h>
 #include <utils/Timers.h>
 
-#include <linux/bltsville.h>
-#include <video/dsscomp.h>
-#include <video/omap_hwc.h>
-
-#include "hal_public.h"
 #include "hwc_dev.h"
+#include "sw_vsync.h"
 
 static pthread_t vsync_thread;
 static pthread_mutex_t vsync_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -57,13 +53,12 @@ static void *vsync_loop(void *data)
 {
     struct timespec tp, tp_next, tp_sleep;
     nsecs_t now = 0, period = vsync_rate, next_vsync = 0, next_fake_vsync = 0, sleep = 0;
-    omap4_hwc_device_t *hwc_dev = (omap4_hwc_device_t *)data;
+    omap_hwc_device_t *hwc_dev = (omap_hwc_device_t *)data;
     tp_sleep.tv_sec = tp_sleep.tv_nsec = 0;
     bool reset_timers = true;
 
     setpriority(PRIO_PROCESS, 0, HAL_PRIORITY_URGENT_DISPLAY);
-    ALOGI(">>vsync_loop()");
-    
+
     for (;;) {
         pthread_mutex_lock(&vsync_mutex);
         period = vsync_rate; /* re-read rate */
@@ -91,7 +86,6 @@ static void *vsync_loop(void *data)
             hwc_dev->procs->vsync(hwc_dev->procs, 0, next_vsync);
         }
     }
-    ALOGI("<<vsync_loop()");
     return NULL;
 }
 
@@ -101,7 +95,8 @@ bool use_sw_vsync()
     bool rv = false;
     property_get("ro.product.board", board, "");
     if ((strncmp("blaze", board, PROPERTY_VALUE_MAX) == 0) ||
-        (strncmp("panda5", board, PROPERTY_VALUE_MAX) == 0)) {
+        (strncmp("panda5", board, PROPERTY_VALUE_MAX) == 0) ||
+        (strncmp("jacinto6evm", board, PROPERTY_VALUE_MAX) == 0)) {
         /* TODO: panda5 really should support h/w vsync */
         rv = true;
     } else {
@@ -114,7 +109,7 @@ bool use_sw_vsync()
     return rv;
 }
 
-void init_sw_vsync(omap4_hwc_device_t *hwc_dev)
+void init_sw_vsync(omap_hwc_device_t *hwc_dev)
 {
     pthread_cond_init(&vsync_cond, NULL);
     pthread_create(&vsync_thread, NULL, vsync_loop, (void *)hwc_dev);
@@ -124,15 +119,12 @@ void start_sw_vsync()
 {
     char refresh_rate[PROPERTY_VALUE_MAX];
     property_get("persist.hwc.sw_vsync_rate", refresh_rate, "60");
-    
-//    ALOGI(">>start_sw_vsync()");
 
     pthread_mutex_lock(&vsync_mutex);
     int rate = atoi(refresh_rate);
     if (rate <= 0)
         rate = 60;
     vsync_rate = 1000000000 / rate;
-//    ALOGI("Calculated vsync_rate=%d", vsync_rate);
     if (vsync_loop_active) {
         pthread_mutex_unlock(&vsync_mutex);
         return;
@@ -140,12 +132,10 @@ void start_sw_vsync()
     vsync_loop_active = true;
     pthread_mutex_unlock(&vsync_mutex);
     pthread_cond_signal(&vsync_cond);
-//    ALOGI("<<start_sw_vsync()");
 }
 
 void stop_sw_vsync()
 {
-//    ALOGI(">>stop_sw_vsync()");  
     pthread_mutex_lock(&vsync_mutex);
     if (!vsync_loop_active) {
         pthread_mutex_unlock(&vsync_mutex);
@@ -154,5 +144,4 @@ void stop_sw_vsync()
     vsync_loop_active = false;
     pthread_mutex_unlock(&vsync_mutex);
     pthread_cond_signal(&vsync_cond);
-//    ALOGI("<<stop_sw_vsync()");  
 }

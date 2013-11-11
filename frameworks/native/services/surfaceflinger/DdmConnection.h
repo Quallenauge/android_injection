@@ -1,5 +1,5 @@
 /*
- * Copyright (C) Texas Instruments - http://www.ti.com/
+ * Copyright (C) 2011 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,25 +14,19 @@
  * limitations under the License.
  */
 
-#ifndef __DOCK_IMAGE__
-#define __DOCK_IMAGE__
+#ifndef ANDROID_SF_DDM_CONNECTION
+#define ANDROID_SF_DDM_CONNECTION
 
-#include <stdint.h>
+namespace android {
 
-/* ARGB image */
-struct image_info {
-    int width;
-    int height;
-    int rowbytes;
-    int size;
-    uint8_t *ptr;
+// wrapper for dlsym
+extern "C" void DdmConnection_start(const char* name);
+
+class DdmConnection {
+public:
+    static void start(const char* name);
 };
-typedef struct image_info image_info_t;
 
-typedef struct omap_hwc_device omap_hwc_device_t;
+}; // namespace android
 
-int init_dock_image(omap_hwc_device_t *hwc_dev, uint32_t max_width, uint32_t max_height);
-void load_dock_image();
-image_info_t *get_dock_image();
-
-#endif
+#endif /* ANDROID_SF_DDM_CONNECTION */

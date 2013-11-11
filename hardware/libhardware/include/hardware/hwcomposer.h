@@ -264,6 +264,88 @@ typedef struct hwc_layer_1 {
 
 } hwc_layer_1_t;
 
+#ifdef OMAP_ENHANCEMENT
+
+/*
+ * HWC extension operations, see HWC_EXTENDED_API
+ */
+enum {
+    /*
+     * Get extra layer data
+     * @params
+     * data: hwc_layer_extended_t
+     */
+    HWC_EXTENDED_OP_LAYERDATA = 1,
+
+    /*
+     * Returns layer stack identifier
+     * @params
+     * data: hwc_layer_stack_t
+     */
+    HWC_EXTENDED_OP_LAYERSTACK = 2,
+
+    /*
+     * Returns display information
+     * @params
+     * data: hwc_display_info_t
+     */
+    HWC_EXTENDED_OP_DISPLAYINFO = 3,
+};
+
+typedef struct hwc_layer_extended {
+    /*
+     * Layer index (input)
+     */
+    uint32_t idx;
+
+    /*
+     * Display index (input)
+     */
+    int32_t dpy;
+
+    /*
+     * Provides a unique identity for this layer (output)
+     */
+    uint32_t identity;
+} hwc_layer_extended_t;
+
+typedef struct hwc_layer_stack {
+    /*
+     * Display index (input)
+     */
+    int32_t dpy;
+
+    /*
+     * Layer stack identifier for this display (output)
+     */
+    uint32_t stack;
+} hwc_layer_stack_t;
+
+typedef struct hwc_display_info {
+    /*
+     * Display index (input)
+     */
+    int32_t dpy;
+
+    /*
+     * Display resolution (output)
+     */
+    uint32_t width;
+    uint32_t height;
+
+    /*
+     * Display orientation (output)
+     */
+    uint32_t orientation;
+} hwc_display_info_t;
+
+typedef struct hwc_layer_list_extended {
+    size_t numHwLayers;
+    hwc_layer_extended_t hwLayers[0];
+} hwc_layer_list_extended_t;
+
+#endif
+
 /* This represents a display, typically an EGLDisplay object */
 typedef void* hwc_display_t;
 
@@ -418,7 +500,6 @@ typedef struct hwc_procs {
      * HWC_DEVICE_API_VERSION_1_0.
      */
     void (*hotplug)(const struct hwc_procs* procs, int disp, int connected);
-    
 #ifdef OMAP_ENHANCEMENT
     /*
      * (*extension_cb)() is called by the h/w composer HAL. Its purpose is
@@ -442,7 +523,6 @@ typedef struct hwc_procs {
                         int size);
 
 #endif
-
 } hwc_procs_t;
 
 
@@ -655,39 +735,6 @@ static inline int hwc_close_1(hwc_composer_device_1_t* device) {
 }
 
 /*****************************************************************************/
-
-#ifdef OMAP_ENHANCEMENT
-
-/*
- * HWC extension operations, see HWC_EXTENDED_API
- */
-enum {
-    /*
-     * Get extra layer data
-     * @params
-     * data: hwc_layer_extended_t
-     */
-    HWC_EXTENDED_OP_LAYERDATA = 1,
-};
-
-typedef struct hwc_layer_extended {
-    /*
-     * Layer index (input)
-     */
-    uint32_t idx;
-
-    /*
-     * Provides a unique identity for this layer (output)
-     */
-    uint32_t identity;
-} hwc_layer_extended_t;
-
-typedef struct hwc_layer_list_extended {
-    size_t numHwLayers;
-    hwc_layer_extended_t hwLayers[0];
-} hwc_layer_list_extended_t;
-
-#endif
 
 #if !HWC_REMOVE_DEPRECATED_VERSIONS
 #include <hardware/hwcomposer_v0.h>

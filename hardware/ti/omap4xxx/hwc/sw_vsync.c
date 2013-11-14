@@ -62,6 +62,10 @@ static void *vsync_loop(void *data)
     for (;;) {
         pthread_mutex_lock(&vsync_mutex);
         period = vsync_rate; /* re-read rate */
+        if (period==0){
+	  ALOGE("Error: period is set to zero!\n");
+	  period=1;
+	}
         while (!vsync_loop_active) {
             pthread_cond_wait(&vsync_cond, &vsync_mutex);
         }

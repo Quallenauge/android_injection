@@ -397,6 +397,7 @@ enum {
     AUDIO_DEVICE_OUT_REMOTE_SUBMIX             = 0x8000,
 #ifdef OMAP_ENHANCEMENT
     AUDIO_DEVICE_OUT_FM_RADIO_TX               = 0x20000000,
+	AUDIO_DEVICE_OUT_WIRED_HEADPHONE2          = 0x10000,
 #endif
 #ifdef QCOM_HARDWARE
     AUDIO_DEVICE_OUT_ANC_HEADSET               = 0x10000,
@@ -424,6 +425,9 @@ enum {
                                  AUDIO_DEVICE_OUT_USB_ACCESSORY |
                                  AUDIO_DEVICE_OUT_USB_DEVICE |
                                  AUDIO_DEVICE_OUT_REMOTE_SUBMIX |
+#ifdef OMAP_MULTIZONE_AUDIO
+                                 AUDIO_DEVICE_OUT_WIRED_HEADPHONE2 |
+#endif								 
 #ifdef OMAP_ENHANCEMENT
                                  AUDIO_DEVICE_OUT_FM_RADIO_TX |
 #endif                                 

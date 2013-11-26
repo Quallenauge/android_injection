@@ -1,8 +1,6 @@
-ifeq ($(findstring omap, $(TARGET_BOARD_PLATFORM)),omap)
-ifeq ($(TI_OMAP4_CAMERAHAL_VARIANT),)
-
 LOCAL_PATH:= $(call my-dir)
 
+ifeq ($(TARGET_BOARD_PLATFORM), $(filter $(TARGET_BOARD_PLATFORM), omap4 omap5 jacinto6))
 #OMAP4_CAMERA_HAL_USES:= OMX
 #OMAP4_CAMERA_HAL_USES:= USB
 OMAP4_CAMERA_HAL_USES:= ALL
@@ -47,10 +45,14 @@ ifeq ($(ENHANCED_DOMX),true)
     CAMERAHAL_CFLAGS += -DENHANCED_DOMX
 endif
 
+ifdef ARCH_ARM_HAVE_NEON
+    CAMERAHAL_CFLAGS += -DARCH_ARM_HAVE_NEON
+endif
+
 CAMERAHAL_CFLAGS += -DLOG_TAG=\"CameraHal\"
 
 TI_CAMERAHAL_COMMON_INCLUDES := \
-    hardware/ti/omap4xxx/tiler \
+    hardware/ti/omap4xxx/include \
     hardware/ti/omap4xxx/hwc \
     external/jpeg \
     external/jhead \
@@ -60,12 +62,13 @@ TI_CAMERAHAL_COMMON_INCLUDES := \
 ifdef ANDROID_API_JB_OR_LATER
 TI_CAMERAHAL_COMMON_INCLUDES += \
     frameworks/native/include/media/hardware \
-    system/core/include \
-    system/media/camera/include
+    $(DOMX_PATH)/mm_osal/inc \
+    $(DOMX_PATH)/omx_core/inc    
 else
 TI_CAMERAHAL_COMMON_INCLUDES += \
     frameworks/base/include/media/stagefright \
-    hardware/ti/omap4xxx/include
+    $(DOMX_PATH)/mm_osal/inc \
+    $(DOMX_PATH)/omx_core/inc
 endif
 
 TI_CAMERAHAL_COMMON_SRC := \
@@ -87,7 +90,6 @@ TI_CAMERAHAL_COMMON_SRC := \
     CameraHalCommon.cpp \
     FrameDecoder.cpp \
     SwFrameDecoder.cpp \
-    OmxFrameDecoder.cpp \
     DecoderFactory.cpp
 
 TI_CAMERAHAL_OMX_SRC := \
@@ -104,7 +106,8 @@ TI_CAMERAHAL_OMX_SRC := \
     OMXCameraAdapter/OMXMetadata.cpp \
     OMXCameraAdapter/OMXZoom.cpp \
     OMXCameraAdapter/OMXDccDataSave.cpp \
-    OMXCameraAdapter/OMXDCC.cpp
+    OMXCameraAdapter/OMXDCC.cpp \
+    OmxFrameDecoder.cpp
 
 TI_CAMERAHAL_USB_SRC := \
     V4LCameraAdapter/V4LCameraAdapter.cpp \
@@ -118,9 +121,19 @@ TI_CAMERAHAL_COMMON_SHARED_LIBRARIES := \
     libtiutils \
     libcamera_client \
     libgui \
-    libion \
     libjpeg \
     libexif
+
+ifeq ($(TARGET_BOARD_PLATFORM), $(filter $(TARGET_BOARD_PLATFORM), omap4))
+TI_CAMERAHAL_COMMON_SHARED_LIBRARIES += \
+    libion_ti \
+    liblog
+LOCAL_CFLAGS := -DUSE_LIBION_TI
+else
+TI_CAMERAHAL_COMMON_SHARED_LIBRARIES += \
+    libion
+LOCAL_CFLAGS := -DUSE_LIBION
+endif
 
 ifdef OMAP_ENHANCEMENT_CPCAM
 TI_CAMERAHAL_COMMON_STATIC_LIBRARIES += \
@@ -140,12 +153,10 @@ CAMERAHAL_CFLAGS += -DOMX_CAMERA_ADAPTER
 
 LOCAL_SRC_FILES:= \
     $(TI_CAMERAHAL_COMMON_SRC) \
-    $(TI_CAMERAHAL_OMX_SRC)
+    $(TI_CAMERAHAL_OMX_SRC) \
 
 LOCAL_C_INCLUDES += \
     $(TI_CAMERAHAL_COMMON_INCLUDES) \
-    $(DOMX_PATH)/omx_core/inc \
-    $(DOMX_PATH)/mm_osal/inc \
     $(LOCAL_PATH)/inc/OMXCameraAdapter
 
 LOCAL_SHARED_LIBRARIES:= \
@@ -156,8 +167,7 @@ LOCAL_SHARED_LIBRARIES:= \
 
 LOCAL_STATIC_LIBRARIES := $(TI_CAMERAHAL_COMMON_STATIC_LIBRARIES)
 
-LOCAL_CFLAGS := -fno-short-enums -DCOPY_IMAGE_BUFFER $(CAMERAHAL_CFLAGS) 
-LOCAL_CFLAGS += -fno-strict-aliasing
+LOCAL_CFLAGS += -fno-short-enums -DCOPY_IMAGE_BUFFER $(CAMERAHAL_CFLAGS)
 
 LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)/hw
 LOCAL_MODULE:= camera.$(TARGET_BOARD_PLATFORM)
@@ -190,8 +200,7 @@ LOCAL_SHARED_LIBRARIES:= \
 
 LOCAL_STATIC_LIBRARIES := $(TI_CAMERAHAL_COMMON_STATIC_LIBRARIES)
 
-LOCAL_CFLAGS := -fno-short-enums -DCOPY_IMAGE_BUFFER $(CAMERAHAL_CFLAGS)
-LOCAL_CFLAGS += -fno-strict-aliasing
+LOCAL_CFLAGS += -fno-short-enums -DCOPY_IMAGE_BUFFER $(CAMERAHAL_CFLAGS)
 
 LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)/hw
 LOCAL_MODULE:= camera.$(TARGET_BOARD_PLATFORM)
@@ -231,8 +240,7 @@ LOCAL_SHARED_LIBRARIES:= \
 
 LOCAL_STATIC_LIBRARIES := $(TI_CAMERAHAL_COMMON_STATIC_LIBRARIES)
 
-LOCAL_CFLAGS := -fno-short-enums -DCOPY_IMAGE_BUFFER $(CAMERAHAL_CFLAGS)
-LOCAL_CFLAGS += -fno-strict-aliasing
+LOCAL_CFLAGS += -DUSE_LIBION_TI -fno-short-enums -DCOPY_IMAGE_BUFFER $(CAMERAHAL_CFLAGS)
 
 LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)/hw
 LOCAL_MODULE:= camera.$(TARGET_BOARD_PLATFORM)
@@ -240,7 +248,6 @@ LOCAL_MODULE_TAGS:= optional
 
 include $(BUILD_HEAPTRACKED_SHARED_LIBRARY)
 
-endif
 endif
 endif
 endif

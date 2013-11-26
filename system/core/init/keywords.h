@@ -12,10 +12,10 @@ int do_export_rc(int nargs, char **args);
 int do_hostname(int nargs, char **args);
 int do_ifup(int nargs, char **args);
 int do_insmod(int nargs, char **args);
-int do_log(int nargs, char **args);
 int do_mkdir(int nargs, char **args);
 int do_mount_all(int nargs, char **args);
 int do_mount(int nargs, char **args);
+int do_powerctl(int nargs, char **args);
 int do_restart(int nargs, char **args);
 int do_restorecon(int nargs, char **args);
 int do_rm(int nargs, char **args);
@@ -28,6 +28,7 @@ int do_setrlimit(int nargs, char **args);
 int do_setsebool(int nargs, char **args);
 int do_start(int nargs, char **args);
 int do_stop(int nargs, char **args);
+int do_swapon_all(int nargs, char **args);
 int do_trigger(int nargs, char **args);
 int do_symlink(int nargs, char **args);
 int do_sysclktz(int nargs, char **args);
@@ -63,13 +64,13 @@ enum {
     KEYWORD(insmod,      COMMAND, 1, do_insmod)
     KEYWORD(import,      SECTION, 1, 0)
     KEYWORD(keycodes,    OPTION,  0, 0)
-    KEYWORD(log,         COMMAND, 1, do_log)
     KEYWORD(mkdir,       COMMAND, 1, do_mkdir)
     KEYWORD(mount_all,   COMMAND, 1, do_mount_all)
     KEYWORD(mount,       COMMAND, 3, do_mount)
     KEYWORD(on,          SECTION, 0, 0)
     KEYWORD(oneshot,     OPTION,  0, 0)
     KEYWORD(onrestart,   OPTION,  0, 0)
+    KEYWORD(powerctl,    COMMAND, 1, do_powerctl)
     KEYWORD(restart,     COMMAND, 1, do_restart)
     KEYWORD(restorecon,  COMMAND, 1, do_restorecon)
     KEYWORD(rm,          COMMAND, 1, do_rm)
@@ -86,6 +87,7 @@ enum {
     KEYWORD(socket,      OPTION,  0, 0)
     KEYWORD(start,       COMMAND, 1, do_start)
     KEYWORD(stop,        COMMAND, 1, do_stop)
+    KEYWORD(swapon_all,  COMMAND, 1, do_swapon_all)
     KEYWORD(trigger,     COMMAND, 1, do_trigger)
     KEYWORD(symlink,     COMMAND, 1, do_symlink)
     KEYWORD(sysclktz,    COMMAND, 1, do_sysclktz)

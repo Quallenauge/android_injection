@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2011 The Android Open Source Project
- * Copyright (c) 2012, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,6 +32,9 @@ __BEGIN_DECLS
  * frameworks/base/include/media/AudioSystem.h
  */
 
+/* device address used to refer to the standard remote submix */
+#define AUDIO_REMOTE_SUBMIX_DEVICE_ADDRESS "0"
+
 #define AMR_FRAMESIZE 32
 #define QCELP_FRAMESIZE 35
 #define EVRC_FRAMESIZE 23
@@ -53,11 +56,8 @@ typedef enum {
     AUDIO_STREAM_ENFORCED_AUDIBLE = 7, /* Sounds that cannot be muted by user and must be routed to speaker */
     AUDIO_STREAM_DTMF             = 8,
     AUDIO_STREAM_TTS              = 9,
-#ifdef QCOM_FM_ENABLED
-    AUDIO_STREAM_FM               = 10,
-#endif
 #ifdef QCOM_HARDWARE
-    AUDIO_STREAM_INCALL_MUSIC     = 11,
+    AUDIO_STREAM_INCALL_MUSIC     = 10,
 #endif
 
     AUDIO_STREAM_CNT,
@@ -80,12 +80,15 @@ typedef enum {
                                           /* An example of remote presentation is Wifi Display */
                                           /*  where a dongle attached to a TV can be used to   */
                                           /*  play the mix captured by this audio source.      */
-#if defined(QCOM_FM_ENABLED) || defined(STE_FM)
     AUDIO_SOURCE_FM_RX               = 9,
     AUDIO_SOURCE_FM_RX_A2DP          = 10,
-#endif
     AUDIO_SOURCE_CNT,
     AUDIO_SOURCE_MAX                 = AUDIO_SOURCE_CNT - 1,
+    AUDIO_SOURCE_HOTWORD             = 1999, /* A low-priority, preemptible audio source for
+                                                for background software hotword detection.
+                                                Same tuning as AUDIO_SOURCE_VOICE_RECOGNITION.
+                                                Used only internally to the framework. Not exposed
+                                                at the audio HAL. */
 } audio_source_t;
 
 #ifdef QCOM_HARDWARE
@@ -321,9 +324,6 @@ enum {
     AUDIO_CHANNEL_IN_VOICE_DNLINK_MONO = (AUDIO_CHANNEL_IN_VOICE_DNLINK | AUDIO_CHANNEL_IN_MONO),
     AUDIO_CHANNEL_IN_VOICE_CALL_MONO   = (AUDIO_CHANNEL_IN_VOICE_UPLINK_MONO | AUDIO_CHANNEL_IN_VOICE_DNLINK_MONO),
 #endif
-#ifdef OMAP_ENHANCEMENT
-    AUDIO_CHANNEL_IN_5POINT1EMUL = 0x3f,
-#endif
     AUDIO_CHANNEL_IN_ALL    = (AUDIO_CHANNEL_IN_LEFT |
                                AUDIO_CHANNEL_IN_RIGHT |
                                AUDIO_CHANNEL_IN_FRONT |
@@ -338,9 +338,6 @@ enum {
                                AUDIO_CHANNEL_IN_Z_AXIS |
 #ifdef QCOM_HARDWARE
                                AUDIO_CHANNEL_IN_5POINT1 |
-#endif
-#ifdef OMAP_ENHANCEMENT
-                               AUDIO_CHANNEL_IN_5POINT1EMUL |
 #endif
                                AUDIO_CHANNEL_IN_VOICE_UPLINK |
                                AUDIO_CHANNEL_IN_VOICE_DNLINK)
@@ -395,20 +392,17 @@ enum {
     AUDIO_DEVICE_OUT_USB_ACCESSORY             = 0x2000,
     AUDIO_DEVICE_OUT_USB_DEVICE                = 0x4000,
     AUDIO_DEVICE_OUT_REMOTE_SUBMIX             = 0x8000,
-#ifdef OMAP_ENHANCEMENT
-    AUDIO_DEVICE_OUT_FM_RADIO_TX               = 0x20000000,
-	AUDIO_DEVICE_OUT_WIRED_HEADPHONE2          = 0x10000,
-#endif
-#ifdef QCOM_HARDWARE
     AUDIO_DEVICE_OUT_ANC_HEADSET               = 0x10000,
     AUDIO_DEVICE_OUT_ANC_HEADPHONE             = 0x20000,
     AUDIO_DEVICE_OUT_PROXY                     = 0x40000,
-#endif
-#if defined(QCOM_FM_ENABLED) || defined(STE_FM)
+#ifdef QCOM_HARDWARE
     AUDIO_DEVICE_OUT_FM                        = 0x80000,
     AUDIO_DEVICE_OUT_FM_TX                     = 0x100000,
 #endif
     AUDIO_DEVICE_OUT_DEFAULT                   = AUDIO_DEVICE_BIT_DEFAULT,
+#ifdef OMAP_ENHANCEMENT
+    AUDIO_DEVICE_OUT_WIRED_HEADPHONE2          = 0x10000,
+#endif
     AUDIO_DEVICE_OUT_ALL      = (AUDIO_DEVICE_OUT_EARPIECE |
                                  AUDIO_DEVICE_OUT_SPEAKER |
                                  AUDIO_DEVICE_OUT_WIRED_HEADSET |
@@ -425,18 +419,13 @@ enum {
                                  AUDIO_DEVICE_OUT_USB_ACCESSORY |
                                  AUDIO_DEVICE_OUT_USB_DEVICE |
                                  AUDIO_DEVICE_OUT_REMOTE_SUBMIX |
-#ifdef OMAP_MULTIZONE_AUDIO
-                                 AUDIO_DEVICE_OUT_WIRED_HEADPHONE2 |
-#endif								 
-#ifdef OMAP_ENHANCEMENT
-                                 AUDIO_DEVICE_OUT_FM_RADIO_TX |
-#endif                                 
-#ifdef QCOM_HARDWARE
                                  AUDIO_DEVICE_OUT_ANC_HEADSET |
                                  AUDIO_DEVICE_OUT_ANC_HEADPHONE |
-                                 AUDIO_DEVICE_OUT_PROXY |
+                                 AUDIO_DEVICE_OUT_PROXY |                                 
+#ifdef OMAP_MULTIZONE_AUDIO
+                                 AUDIO_DEVICE_OUT_WIRED_HEADPHONE2 |
 #endif
-#if defined(QCOM_FM_ENABLED) || defined(STE_FM)
+#ifdef QCOM_HARDWARE
                                  AUDIO_DEVICE_OUT_FM |
                                  AUDIO_DEVICE_OUT_FM_TX |
 #endif
@@ -464,13 +453,10 @@ enum {
     AUDIO_DEVICE_IN_ANLG_DOCK_HEADSET     = AUDIO_DEVICE_BIT_IN * 0x200,
     AUDIO_DEVICE_IN_DGTL_DOCK_HEADSET     = AUDIO_DEVICE_BIT_IN * 0x400,
     AUDIO_DEVICE_IN_USB_ACCESSORY         = AUDIO_DEVICE_BIT_IN * 0x800,
-    AUDIO_DEVICE_IN_USB_DEVICE            = AUDIO_DEVICE_BIT_IN * 0x1000,    
+    AUDIO_DEVICE_IN_USB_DEVICE            = AUDIO_DEVICE_BIT_IN * 0x1000,
+    AUDIO_DEVICE_IN_ANC_HEADSET           = AUDIO_DEVICE_BIT_IN | 0x2000,
+    AUDIO_DEVICE_IN_PROXY                 = AUDIO_DEVICE_BIT_IN | 0x4000,
     AUDIO_DEVICE_IN_DEFAULT               = AUDIO_DEVICE_IN_BUILTIN_MIC,
-#ifdef OMAP_ENHANCEMENT
-    AUDIO_DEVICE_IN_USB_HEADSET           = AUDIO_DEVICE_BIT_IN | 0x1000000,
-    AUDIO_DEVICE_IN_FM_RADIO_RX           = AUDIO_DEVICE_BIT_IN | 0x2000000,
-#endif    
-
 #else
     AUDIO_DEVICE_IN_COMMUNICATION         = AUDIO_DEVICE_BIT_IN | 0x1,
     AUDIO_DEVICE_IN_AMBIENT               = AUDIO_DEVICE_BIT_IN | 0x2,
@@ -485,18 +471,16 @@ enum {
     AUDIO_DEVICE_IN_DGTL_DOCK_HEADSET     = AUDIO_DEVICE_BIT_IN | 0x400,
     AUDIO_DEVICE_IN_USB_ACCESSORY         = AUDIO_DEVICE_BIT_IN | 0x800,
     AUDIO_DEVICE_IN_USB_DEVICE            = AUDIO_DEVICE_BIT_IN | 0x1000,
-#ifdef OMAP_ENHANCEMENT
-    AUDIO_DEVICE_IN_USB_HEADSET           = AUDIO_DEVICE_BIT_IN | 0x1000000,
-    AUDIO_DEVICE_IN_FM_RADIO_RX           = AUDIO_DEVICE_BIT_IN | 0x2000000,
-#endif    
-#ifdef QCOM_HARDWARE
     AUDIO_DEVICE_IN_ANC_HEADSET           = AUDIO_DEVICE_BIT_IN | 0x2000,
     AUDIO_DEVICE_IN_PROXY                 = AUDIO_DEVICE_BIT_IN | 0x4000,
-#endif
-#if defined(QCOM_FM_ENABLED) || defined(STE_FM)
+#ifdef QCOM_HARDWARE
     AUDIO_DEVICE_IN_FM_RX                 = AUDIO_DEVICE_BIT_IN | 0x8000,
     AUDIO_DEVICE_IN_FM_RX_A2DP            = AUDIO_DEVICE_BIT_IN | 0x10000,
 #endif
+#ifdef OMAP_ENHANCEMENT
+    AUDIO_DEVICE_IN_USB_HEADSET           = AUDIO_DEVICE_BIT_IN | 0x1000000,
+#endif
+
     AUDIO_DEVICE_IN_DEFAULT               = AUDIO_DEVICE_BIT_IN | AUDIO_DEVICE_BIT_DEFAULT,
 #endif
 
@@ -513,17 +497,14 @@ enum {
                                AUDIO_DEVICE_IN_DGTL_DOCK_HEADSET |
                                AUDIO_DEVICE_IN_USB_ACCESSORY |
                                AUDIO_DEVICE_IN_USB_DEVICE |
-#ifdef QCOM_HARDWARE
-                               AUDIO_DEVICE_IN_ANC_HEADSET |
                                AUDIO_DEVICE_IN_PROXY |
-#endif
-#if defined(QCOM_FM_ENABLED) || defined(STE_FM)
+                               AUDIO_DEVICE_IN_ANC_HEADSET |
+#ifdef QCOM_HARDWARE
                                AUDIO_DEVICE_IN_FM_RX |
                                AUDIO_DEVICE_IN_FM_RX_A2DP |
 #endif
 #ifdef OMAP_ENHANCEMENT
                                AUDIO_DEVICE_IN_USB_HEADSET |
-                               AUDIO_DEVICE_IN_FM_RADIO_RX |
 #endif
                                AUDIO_DEVICE_IN_DEFAULT),
     AUDIO_DEVICE_IN_ALL_SCO = AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET,
@@ -551,17 +532,59 @@ typedef enum {
                                         // controls related to voice calls.
     AUDIO_OUTPUT_FLAG_FAST = 0x4,       // output supports "fast tracks",
                                         // defined elsewhere
-    AUDIO_OUTPUT_FLAG_DEEP_BUFFER = 0x8,// use deep audio buffers
+    AUDIO_OUTPUT_FLAG_DEEP_BUFFER = 0x8, // use deep audio buffers
+    AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD = 0x10,  // offload playback of compressed
+                                                // streams to hardware codec
+    AUDIO_OUTPUT_FLAG_NON_BLOCKING = 0x20, // use non-blocking write
 #ifdef QCOM_HARDWARE
-    //Qualcomm Flags
+    //MSM Flags
     AUDIO_OUTPUT_FLAG_LPA = 0x1000,      // use LPA
     AUDIO_OUTPUT_FLAG_TUNNEL = 0x2000,   // use Tunnel
     AUDIO_OUTPUT_FLAG_VOIP_RX = 0x4000,  // use this flag in combination with DIRECT to
                                          // indicate HAL to activate EC & NS
                                          // path for VOIP calls
-    AUDIO_OUTPUT_FLAG_INCALL_MUSIC = 0x8000 //use this flag for incall music delivery
+    AUDIO_OUTPUT_FLAG_INCALL_MUSIC = 0x8000, //use this flag for incall music delivery
 #endif
 } audio_output_flags_t;
+
+/* The audio input flags are analogous to audio output flags.
+ * Currently they are used only when an AudioRecord is created,
+ * to indicate a preference to be connected to an input stream with
+ * attributes corresponding to the specified flags.
+ */
+typedef enum {
+    AUDIO_INPUT_FLAG_NONE = 0x0,        // no attributes
+    AUDIO_INPUT_FLAG_FAST = 0x1,        // prefer an input that supports "fast tracks"
+} audio_input_flags_t;
+
+/* Additional information about compressed streams offloaded to
+ * hardware playback
+ * The version and size fields must be initialized by the caller by using
+ * one of the constants defined here.
+ */
+typedef struct {
+    uint16_t version;                   // version of the info structure
+    uint16_t size;                      // total size of the structure including version and size
+    uint32_t sample_rate;               // sample rate in Hz
+    audio_channel_mask_t channel_mask;  // channel mask
+    audio_format_t format;              // audio format
+    audio_stream_type_t stream_type;    // stream type
+    uint32_t bit_rate;                  // bit rate in bits per second
+    int64_t duration_us;                // duration in microseconds, -1 if unknown
+    bool has_video;                     // true if stream is tied to a video stream
+    bool is_streaming;                  // true if streaming, false if local playback
+} audio_offload_info_t;
+
+#define AUDIO_MAKE_OFFLOAD_INFO_VERSION(maj,min) \
+            ((((maj) & 0xff) << 8) | ((min) & 0xff))
+
+#define AUDIO_OFFLOAD_INFO_VERSION_0_1 AUDIO_MAKE_OFFLOAD_INFO_VERSION(0, 1)
+#define AUDIO_OFFLOAD_INFO_VERSION_CURRENT AUDIO_OFFLOAD_INFO_VERSION_0_1
+
+static const audio_offload_info_t AUDIO_INFO_INITIALIZER = {
+    version: AUDIO_OFFLOAD_INFO_VERSION_CURRENT,
+    size: sizeof(audio_offload_info_t),
+};
 
 static inline bool audio_is_output_device(audio_devices_t device)
 {
@@ -631,24 +654,25 @@ static inline bool audio_is_usb_device(audio_devices_t device)
 
 static inline bool audio_is_remote_submix_device(audio_devices_t device)
 {
-    if ((popcount(device) == 1) && (device & AUDIO_DEVICE_OUT_REMOTE_SUBMIX))
+    if ((device & AUDIO_DEVICE_BIT_IN | device & AUDIO_DEVICE_OUT_REMOTE_SUBMIX) == AUDIO_DEVICE_OUT_REMOTE_SUBMIX
+            || (device & AUDIO_DEVICE_IN_REMOTE_SUBMIX) == AUDIO_DEVICE_IN_REMOTE_SUBMIX)
         return true;
     else
         return false;
 }
 
-static inline bool audio_is_input_channel(uint32_t channel)
+static inline bool audio_is_input_channel(audio_channel_mask_t channel)
 {
     if ((channel & ~AUDIO_CHANNEL_IN_ALL) == 0)
-        return true;
+        return channel != 0;
     else
         return false;
 }
 
-static inline bool audio_is_output_channel(uint32_t channel)
+static inline bool audio_is_output_channel(audio_channel_mask_t channel)
 {
     if ((channel & ~AUDIO_CHANNEL_OUT_ALL) == 0)
-        return true;
+        return channel != 0;
     else
         return false;
 }
@@ -697,10 +721,6 @@ static inline audio_channel_mask_t audio_channel_in_mask_from_count(uint32_t cha
     case 6:
         return AUDIO_CHANNEL_IN_5POINT1;
 #endif
-#ifdef OMAP_ENHANCEMENT
-    case 6:
-        return AUDIO_CHANNEL_IN_5POINT1EMUL;
-#endif	
     default:
         return 0;
     }
@@ -803,7 +823,6 @@ static inline size_t audio_bytes_per_sample(audio_format_t format)
     return size;
 }
 
-//This enum used for  resource management in 8x10
 #ifdef RESOURCE_MANAGER
 typedef enum {
        USECASE_PCM_PLAYBACK = 0,
@@ -820,6 +839,37 @@ typedef enum {
        USECASE_FM_PLAYBACK,
        USECASE_ULL,
 } audio_use_case_value_t;
+#endif
+
+#ifdef OMAP_MULTIZONE_AUDIO
+enum {
+    AUDIO_ZONE_NONE       = 0x0,
+    AUDIO_ZONE_CABIN      = 0x1,
+    AUDIO_ZONE_BACKSEAT1  = 0x2,
+    AUDIO_ZONE_BACKSEAT2  = 0x4,
+    AUDIO_ZONE_LAST       = AUDIO_ZONE_BACKSEAT2,
+    AUDIO_ZONE_ALL        = (AUDIO_ZONE_CABIN |
+                             AUDIO_ZONE_BACKSEAT1 |
+                             AUDIO_ZONE_BACKSEAT2),
+};
+
+typedef uint32_t audio_zones_t;
+
+static inline bool audio_is_output_zones(audio_zones_t zones)
+{
+    if (zones & AUDIO_ZONE_ALL)
+        return true;
+    else
+        return false;
+}
+
+static inline bool audio_is_output_zone(audio_zones_t zone)
+{
+    if ((zone & AUDIO_ZONE_ALL) && popcount(zone) == 1)
+        return true;
+    else
+        return false;
+}
 #endif
 
 __END_DECLS

@@ -164,7 +164,7 @@ static inline int framebuffer_open(const struct hw_module_t* module,
                 GRALLOC_HARDWARE_FB1, (struct hw_device_t**)device);
 
     return -1;
-}    
+}
 #else
 static inline int framebuffer_open(const struct hw_module_t* module,
         struct framebuffer_device_t** device) {

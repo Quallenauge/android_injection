@@ -89,7 +89,7 @@ FramebufferNativeWindow::FramebufferNativeWindow()
         // by default we use FB0 for command line GL apps
         err = framebuffer_open(module, &fbDev, GRALLOC_HARDWARE_FB0);
 #else
-        err = framebuffer_open(module, &fbDev);
+         err = framebuffer_open(module, &fbDev);
 #endif	
         ALOGE_IF(err, "couldn't open framebuffer HAL (%s)", strerror(-err));
         

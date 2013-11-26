@@ -16,14 +16,12 @@
 
 #define ATRACE_TAG ATRACE_TAG_GRAPHICS
 
-// Uncomment this to remove support for HWC_DEVICE_API_VERSION_0_3 and older
-// #define HWC_REMOVE_DEPRECATED_VERSIONS 1
-
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
+#include <math.h>
 
 #include <utils/CallStack.h>
 #include <utils/Errors.h>
@@ -50,36 +48,7 @@
 
 namespace android {
 
-// This is not a real HWC version. It's used for in-development features that
-// haven't been committed to a specific real HWC version.
-#define HWC_DEVICE_API_VERSION_1_EXP HARDWARE_DEVICE_API_VERSION_2(1, 0xFF, HWC_HEADER_VERSION)
-
 #define MIN_HWC_HEADER_VERSION HWC_HEADER_VERSION
-
-#define NUM_PHYSICAL_DISPLAYS HWC_NUM_DISPLAY_TYPES
-#define VIRTUAL_DISPLAY_ID_BASE HWC_NUM_DISPLAY_TYPES
-
-// ---------------------------------------------------------------------------
-// Support for HWC_DEVICE_API_VERSION_0_3 and older:
-// Since v0.3 is deprecated and support will be dropped soon, as much as
-// possible the code is written to target v1.0. When using a v0.3 HWC, we
-// allocate v0.3 structures, but assign them to v1.0 pointers.
-
-#if HWC_REMOVE_DEPRECATED_VERSIONS
-// We need complete types to satisfy semantic checks, even though the code
-// paths that use these won't get executed at runtime (and will likely be dead-
-// code-eliminated). When we remove the code to support v0.3 we can remove
-// these as well.
-typedef hwc_layer_1_t hwc_layer_t;
-typedef hwc_display_contents_1_t hwc_layer_list_t;
-typedef hwc_composer_device_1_t hwc_composer_device_t;
-#endif
-
-// This function assumes we've already rejected HWC's with lower-than-required
-// versions. Don't use it for the initial "does HWC meet requirements" check!
-
-#define MIN_HWC_HEADER_VERSION 0
-
 
 static uint32_t hwcApiVersion(const hwc_composer_device_1_t* hwc) {
     uint32_t hwcVersion = hwc->common.version;
@@ -222,13 +191,18 @@ HWComposer::HWComposer(
       mHwc(0), mNumDisplays(1),
       mCBContext(new cb_context),
       mEventHandler(handler),
-      mVSyncCount(0), mDebugForceFakeVSync(false)
+      mDebugForceFakeVSync(false)
 {
-    for (size_t i =0 ; i<MAX_DISPLAYS ; i++) {
+    for (size_t i =0 ; i<MAX_HWC_DISPLAYS ; i++) {
         mLists[i] = 0;
 #ifdef OMAP_ENHANCEMENT
         mListsExt[i] = NULL;
-#endif	
+#endif		
+    }
+
+    for (size_t i=0 ; i<HWC_NUM_PHYSICAL_DISPLAY_TYPES ; i++) {
+        mLastHwVSync[i] = 0;
+        mVSyncCounts[i] = 0;
     }
 
     char value[PROPERTY_VALUE_MAX];
@@ -239,12 +213,12 @@ HWComposer::HWComposer(
 
     // Note: some devices may insist that the FB HAL be opened before HWC.
     int fberr = loadFbHalModule();
-    loadHwcModule();
+    loadHwcModule();	
 
 #ifdef OMAP_ENHANCEMENT
     // FB HAL must stay open independent of HWC API version. Closing FB HAL will
     // result in destruction of flip chain and de-allocation of framebuffer.
-#else    
+#else
     if (mFbDev && mHwc && hwcHasApiVersion(mHwc, HWC_DEVICE_API_VERSION_1_1)) {
         // close FB HAL if we don't needed it.
         // FIXME: this is temporary until we're not forced to open FB HAL
@@ -263,7 +237,7 @@ HWComposer::HWComposer(
     }
 
     // these display IDs are always reserved
-    for (size_t i=0 ; i<NUM_PHYSICAL_DISPLAYS ; i++) {
+    for (size_t i=0 ; i<NUM_BUILTIN_DISPLAYS ; i++) {
         mAllocatedDisplayIDs.markBit(i);
     }
 
@@ -278,7 +252,7 @@ HWComposer::HWComposer(
                 mCBContext->procs.vsync = &hook_vsync;	
 #ifdef OMAP_ENHANCEMENT
             mCBContext->procs.extension_cb = &hook_extension_cb;
-#endif		
+#endif
                 if (hwcHasApiVersion(mHwc, HWC_DEVICE_API_VERSION_1_1))
                     mCBContext->procs.hotplug = &hook_hotplug;
                 else
@@ -302,19 +276,14 @@ HWComposer::HWComposer(
         // always turn vsync off when we start
         if (hwcHasVsyncEvent(mHwc)) {
             eventControl(HWC_DISPLAY_PRIMARY, HWC_EVENT_VSYNC, 0);
-
             // the number of displays we actually have depends on the
             // hw composer version
-            if (hwcHasApiVersion(mHwc, HWC_DEVICE_API_VERSION_1_EXP)) {
-                // 1.?? adds support for virtual displays
-                mNumDisplays = MAX_DISPLAYS;
+            if (hwcHasApiVersion(mHwc, HWC_DEVICE_API_VERSION_1_3)) {
+                // 1.3 adds support for virtual displays
+                mNumDisplays = MAX_HWC_DISPLAYS;
             } else if (hwcHasApiVersion(mHwc, HWC_DEVICE_API_VERSION_1_1)) {
                 // 1.1 adds support for multiple displays
-#ifdef QCOM_HARDWARE
-                mNumDisplays = MAX_DISPLAYS;
-#else
-                mNumDisplays = NUM_PHYSICAL_DISPLAYS;
-#endif
+                mNumDisplays = NUM_BUILTIN_DISPLAYS;
             } else {
                 mNumDisplays = 1;
             }
@@ -327,7 +296,7 @@ HWComposer::HWComposer(
 #ifdef OMAP_ENHANCEMENT
     if (!mHwc || !hwcHasApiVersion(mHwc, HWC_DEVICE_API_VERSION_1_1)) {
 #else
-    if (mFbDev) {
+     if (mFbDev) {
 #endif
         ALOG_ASSERT(!(mHwc && hwcHasApiVersion(mHwc, HWC_DEVICE_API_VERSION_1_1)),
                 "should only have fbdev if no hwc or hwc is 1.0");
@@ -350,7 +319,7 @@ HWComposer::HWComposer(
         }
     } else if (mHwc) {
         // here we're guaranteed to have at least HWC 1.1
-        for (size_t i =0 ; i<NUM_PHYSICAL_DISPLAYS ; i++) {
+        for (size_t i =0 ; i<NUM_BUILTIN_DISPLAYS ; i++) {
             queryDisplayProperties(i);
         }
     }
@@ -379,7 +348,7 @@ HWComposer::~HWComposer() {
     if (mFbDev2) {
         framebuffer_close(mFbDev2);
     }
-#endif    
+#endif 	
     delete mCBContext;
 }
 
@@ -422,8 +391,9 @@ int HWComposer::loadFbHalModule()
         ALOGE("%s module not found", GRALLOC_HARDWARE_MODULE_ID);
         return err;
     }
+
 #ifdef OMAP_ENHANCEMENT
-    err = framebuffer_open(module, &mFbDev, "fb0");
+   err = framebuffer_open(module, &mFbDev, "fb0");
     if (err) {
         ALOGE("framebuffer_open failed for fb0 (%s)", strerror(-err));
         return err;
@@ -433,12 +403,12 @@ int HWComposer::loadFbHalModule()
     // FIXME: get away with FB HAL.
     err = framebuffer_open(module, &mFbDev2, "fb1");
     if (err) {
-        ALOGE("framebuffer_open for fb1 failed (%s)", strerror(-err));
+       ALOGE("framebuffer_open for fb1 failed (%s)", strerror(-err));
         return err;
     }
     return err;
 #else
-    return framebuffer_open(module, &mFbDev);
+     return framebuffer_open(module, &mFbDev);
 #endif
 }
 
@@ -522,15 +492,35 @@ int HWComposer::extendedApiLayerData(hwc_layer_extended* linfo) {
 }
 #endif
 
+
 void HWComposer::invalidate() {
     mFlinger->repaintEverything();
 }
 
 void HWComposer::vsync(int disp, int64_t timestamp) {
-    ATRACE_INT("VSYNC", ++mVSyncCount&1);
-    mEventHandler.onVSyncReceived(disp, timestamp);
-    Mutex::Autolock _l(mLock);
-    mLastHwVSync = timestamp;
+    if (uint32_t(disp) < HWC_NUM_PHYSICAL_DISPLAY_TYPES) {
+        {
+            Mutex::Autolock _l(mLock);
+
+            // There have been reports of HWCs that signal several vsync events
+            // with the same timestamp when turning the display off and on. This
+            // is a bug in the HWC implementation, but filter the extra events
+            // out here so they don't cause havoc downstream.
+            if (timestamp == mLastHwVSync[disp]) {
+                ALOGW("Ignoring duplicate VSYNC event from HWC (t=%lld)",
+                        timestamp);
+                return;
+            }
+
+            mLastHwVSync[disp] = timestamp;
+        }
+
+        char tag[16];
+        snprintf(tag, sizeof(tag), "HW_VSYNC_%1u", disp);
+        ATRACE_INT(tag, ++mVSyncCounts[disp] & 1);
+
+        mEventHandler.onVSyncReceived(disp, timestamp);
+    }
 }
 
 void HWComposer::hotplug(int disp, int connected) {
@@ -612,7 +602,7 @@ status_t HWComposer::queryDisplayProperties(int disp) {
     // Use pixel format native to DSS HW
     mDisplayData[disp].format = HAL_PIXEL_FORMAT_BGRA_8888;
 #else
-    mDisplayData[disp].format = HAL_PIXEL_FORMAT_RGBA_8888;
+     mDisplayData[disp].format = HAL_PIXEL_FORMAT_RGBA_8888;
 #endif
     mDisplayData[disp].connected = true;
     if (mDisplayData[disp].xdpi == 0.0f || mDisplayData[disp].ydpi == 0.0f) {
@@ -625,12 +615,8 @@ status_t HWComposer::queryDisplayProperties(int disp) {
 
 status_t HWComposer::setVirtualDisplayProperties(int32_t id,
         uint32_t w, uint32_t h, uint32_t format) {
-#ifndef QCOM_HARDWARE
-    if (id < VIRTUAL_DISPLAY_ID_BASE) {
-        return BAD_INDEX;
-    }
-#endif
-    if (id >= int32_t(mNumDisplays) || !mAllocatedDisplayIDs.hasBit(id)) {
+    if (id < VIRTUAL_DISPLAY_ID_BASE || id >= int32_t(mNumDisplays) ||
+            !mAllocatedDisplayIDs.hasBit(id)) {
         return BAD_INDEX;
     }
     mDisplayData[id].width = w;
@@ -651,7 +637,7 @@ int32_t HWComposer::allocateDisplayId() {
 }
 
 status_t HWComposer::freeDisplayId(int32_t id) {
-    if (id < NUM_PHYSICAL_DISPLAYS) {
+    if (id < NUM_BUILTIN_DISPLAYS) {
         // cannot free the reserved IDs
         return BAD_VALUE;
     }
@@ -673,7 +659,7 @@ nsecs_t HWComposer::getRefreshTimestamp(int disp) const {
     // the refresh period and whatever closest timestamp we have.
     Mutex::Autolock _l(mLock);
     nsecs_t now = systemTime(CLOCK_MONOTONIC);
-    return now - ((now - mLastHwVSync) %  mDisplayData[disp].refresh);
+    return now - ((now - mLastHwVSync[disp]) %  mDisplayData[disp].refresh);
 }
 
 sp<Fence> HWComposer::getDisplayFence(int disp) const {
@@ -746,8 +732,7 @@ void HWComposer::eventControl(int disp, int event, int enabled) {
             break;
         case EVENT_ORIENTATION:
             // Orientation event
-            if (hwcHasApiVersion(mHwc, HWC_DEVICE_API_VERSION_1_0))
-              err = mHwc->eventControl(mHwc, disp, event, enabled);
+            err = mHwc->eventControl(mHwc, disp, event, enabled);
             break;
         default:
             ALOGW("eventControl got unexpected event %d (disp=%d en=%d)",
@@ -776,8 +761,8 @@ status_t HWComposer::createWorkList(int32_t id, size_t numLayers) {
 #ifdef OMAP_ENHANCEMENT
             free(disp.listExt);
             size = sizeof(hwc_layer_list_extended_t) + numLayers * sizeof(hwc_layer_extended_t);
-            disp.listExt = (hwc_layer_list_extended_t*)malloc(size);
-#endif	    
+           disp.listExt = (hwc_layer_list_extended_t*)malloc(size);
+#endif			
         }
         if (hwcHasApiVersion(mHwc, HWC_DEVICE_API_VERSION_1_1)) {
             disp.framebufferTarget = &disp.list->hwLayers[numLayers - 1];
@@ -789,7 +774,14 @@ status_t HWComposer::createWorkList(int32_t id, size_t numLayers) {
             disp.framebufferTarget->handle = disp.fbTargetHandle;
             disp.framebufferTarget->transform = 0;
             disp.framebufferTarget->blending = HWC_BLENDING_PREMULT;
-            disp.framebufferTarget->sourceCrop = r;
+            if (hwcHasApiVersion(mHwc, HWC_DEVICE_API_VERSION_1_3)) {
+                disp.framebufferTarget->sourceCropf.left = 0;
+                disp.framebufferTarget->sourceCropf.top = 0;
+                disp.framebufferTarget->sourceCropf.right = disp.width;
+                disp.framebufferTarget->sourceCropf.bottom = disp.height;
+            } else {
+                disp.framebufferTarget->sourceCrop = r;
+            }
             disp.framebufferTarget->displayFrame = r;
             disp.framebufferTarget->visibleRegionScreen.numRects = 1;
             disp.framebufferTarget->visibleRegionScreen.rects =
@@ -806,7 +798,7 @@ status_t HWComposer::createWorkList(int32_t id, size_t numLayers) {
         disp.list->flags |= HWC_EXTENDED_API;
         disp.layerStack = 0;
         disp.listExt->numHwLayers = numLayers;
-#endif	
+#endif		
         hwcNumHwLayers(mHwc, disp.list) = numLayers;
     }
     return NO_ERROR;
@@ -815,7 +807,7 @@ status_t HWComposer::createWorkList(int32_t id, size_t numLayers) {
 #ifdef OMAP_ENHANCEMENT
 status_t HWComposer::setLayerStack(int32_t id, uint32_t stack) {
     if (uint32_t(id)>31 || !mAllocatedDisplayIDs.hasBit(id)) {
-        return BAD_INDEX;
+       return BAD_INDEX;
     }
 
     DisplayData& disp(mDisplayData[id]);
@@ -829,6 +821,7 @@ status_t HWComposer::setLayerStack(int32_t id, uint32_t stack) {
 }
 #endif
 
+
 status_t HWComposer::setFramebufferTarget(int32_t id,
         const sp<Fence>& acquireFence, const sp<GraphicBuffer>& buf) {
     if (uint32_t(id)>31 || !mAllocatedDisplayIDs.hasBit(id)) {
@@ -840,9 +833,6 @@ status_t HWComposer::setFramebufferTarget(int32_t id,
         // triggers a Surface::queueBuffer()  on some
         // devices (!?) -- log and ignore.
         ALOGE("HWComposer: framebufferTarget is null");
-//        CallStack stack;
-//        stack.update();
-//        stack.dump("");
         return NO_ERROR;
     }
 
@@ -876,9 +866,9 @@ status_t HWComposer::prepare() {
         mLists[i] = disp.list;
 #ifdef OMAP_ENHANCEMENT
         mListsExt[i] = disp.listExt;
-#endif	
+#endif		
         if (mLists[i]) {
-            if (hwcHasApiVersion(mHwc, HWC_DEVICE_API_VERSION_1_EXP)) {
+            if (hwcHasApiVersion(mHwc, HWC_DEVICE_API_VERSION_1_3)) {
                 mLists[i]->outbuf = NULL;
                 mLists[i]->outbufAcquireFenceFd = -1;
             } else if (hwcHasApiVersion(mHwc, HWC_DEVICE_API_VERSION_1_1)) {
@@ -945,6 +935,11 @@ status_t HWComposer::prepare() {
                         disp.hasOvComp = true;
                     }
                 }
+                if (disp.list->numHwLayers == (disp.framebufferTarget ? 1 : 0)) {
+                    disp.hasFbComp = true;
+                }
+            } else {
+                disp.hasFbComp = true;
             }
 
         }
@@ -992,20 +987,18 @@ status_t HWComposer::commit() {
                 mLists[0]->dpy = eglGetCurrentDisplay();
                 mLists[0]->sur = eglGetCurrentSurface(EGL_DRAW);
             }
-            err = hwcSet(mHwc, mLists[0]->dpy, mLists[0]->sur, mNumDisplays,
-                    const_cast<hwc_display_contents_1_t**>(mLists));
+            for (size_t i=VIRTUAL_DISPLAY_ID_BASE; i<mNumDisplays; i++) {
+                DisplayData& disp(mDisplayData[i]);
+                if (disp.outbufHandle) {
+                    mLists[i]->outbuf = disp.outbufHandle;
+                    mLists[i]->outbufAcquireFenceFd =
+                        disp.outbufAcquireFence->dup();
+                }
+            }
+            err = mHwc->set(mHwc, mNumDisplays, mLists);
         } else {
             err = hwcSet(mHwc, eglGetCurrentDisplay(), eglGetCurrentSurface(EGL_DRAW), mNumDisplays,
                     const_cast<hwc_display_contents_1_t**>(mLists));
-        }
-
-        for (size_t i=VIRTUAL_DISPLAY_ID_BASE; i<mNumDisplays; i++) {
-            DisplayData& disp(mDisplayData[i]);
-            if (disp.outbufHandle) {
-                mLists[i]->outbuf = disp.outbufHandle;
-                mLists[i]->outbufAcquireFenceFd =
-                        disp.outbufAcquireFence->dup();
-            }
         }
 
         for (size_t i=0 ; i<mNumDisplays ; i++) {
@@ -1067,7 +1060,7 @@ int HWComposer::getVisualID() const {
         // Use pixel format native to DSS HW
         return HAL_PIXEL_FORMAT_BGRA_8888;
 #else
-        return HAL_PIXEL_FORMAT_RGBA_8888;
+         return HAL_PIXEL_FORMAT_RGBA_8888;
 #endif
         //return HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED;
     } else {
@@ -1144,14 +1137,14 @@ protected:
     Iterable(HWCTYPE* layer, hwc_layer_extended_t* layerExt) : mLayerList(layer),
             mCurrentLayer(layer), mLayerListExt(layerExt), mCurrentLayerExt(layerExt) { }
 #else  
-    Iterable(HWCTYPE* layer) : mLayerList(layer), mCurrentLayer(layer) { }
+     Iterable(HWCTYPE* layer) : mLayerList(layer), mCurrentLayer(layer) { }
 #endif
     inline HWCTYPE const * getLayer() const { return mCurrentLayer; }
-    inline HWCTYPE* getLayer() { return mCurrentLayer; }
 #ifdef OMAP_ENHANCEMENT
     inline hwc_layer_extended_t const * getLayerExt() const { return mCurrentLayerExt; }
     inline hwc_layer_extended_t* getLayerExt() { return mCurrentLayerExt; }
-#endif    
+#endif 	
+    inline HWCTYPE* getLayer() { return mCurrentLayer; }
     virtual ~Iterable() { }
 private:
     // returns a copy of ourselves
@@ -1162,7 +1155,7 @@ private:
         mCurrentLayer = &mLayerList[index];
 #ifdef OMAP_ENHANCEMENT
         mCurrentLayerExt = &mLayerListExt[index];
-#endif	
+#endif		
         return NO_ERROR;
     }
 };
@@ -1210,7 +1203,7 @@ public:
     virtual void setIdentity(uint32_t identity) {
         getLayerExt()->identity = identity;
     }
-#endif    
+#endif
     virtual void setDefaultState() {
         getLayer()->compositionType = HWC_FRAMEBUFFER;
         getLayer()->hints = 0;
@@ -1240,8 +1233,8 @@ public:
     virtual void setFrame(const Rect& frame) {
         reinterpret_cast<Rect&>(getLayer()->displayFrame) = frame;
     }
-    virtual void setCrop(const Rect& crop) {
-        reinterpret_cast<Rect&>(getLayer()->sourceCrop) = crop;
+    virtual void setCrop(const FloatRect& crop) {
+        reinterpret_cast<FloatRect&>(getLayer()->sourceCrop) = crop;
     }
     virtual void setVisibleRegionScreen(const Region& reg) {
         // Region::getSharedBuffer creates a reference to the underlying
@@ -1285,8 +1278,8 @@ public:
     HWCLayerVersion1(struct hwc_composer_device_1* hwc, hwc_layer_1_t* layer, hwc_layer_extended_t* layerExt)
         : Iterable<HWCLayerVersion1, hwc_layer_1_t>(layer, layerExt), mHwc(hwc) { }
 #else 
-    HWCLayerVersion1(struct hwc_composer_device_1* hwc, hwc_layer_1_t* layer)
-        : Iterable<HWCLayerVersion1, hwc_layer_1_t>(layer), mHwc(hwc) { }
+     HWCLayerVersion1(struct hwc_composer_device_1* hwc, hwc_layer_1_t* layer)
+         : Iterable<HWCLayerVersion1, hwc_layer_1_t>(layer), mHwc(hwc) { }
 #endif
 
     virtual int32_t getCompositionType() const {
@@ -1303,6 +1296,13 @@ public:
     virtual void setAcquireFenceFd(int fenceFd) {
         getLayer()->acquireFenceFd = fenceFd;
     }
+    
+#ifdef OMAP_ENHANCEMENT
+    virtual void setIdentity(uint32_t identity) {
+        getLayerExt()->identity = identity;
+    }
+#endif    
+   	
     virtual void setPerFrameDefaultState() {
         //getLayer()->compositionType = HWC_FRAMEBUFFER;
     }
@@ -1315,13 +1315,6 @@ public:
             }
         }
     }
-    
-#ifdef OMAP_ENHANCEMENT
-    virtual void setIdentity(uint32_t identity) {
-        getLayerExt()->identity = identity;
-    }
-#endif    
-    
     virtual void setDefaultState() {
         hwc_layer_1_t* const l = getLayer();
         l->compositionType = HWC_FRAMEBUFFER;
@@ -1357,10 +1350,25 @@ public:
         getLayer()->transform = transform;
     }
     virtual void setFrame(const Rect& frame) {
-        reinterpret_cast<Rect&>(getLayer()->displayFrame) = frame;
+        getLayer()->displayFrame = reinterpret_cast<hwc_rect_t const&>(frame);
     }
-    virtual void setCrop(const Rect& crop) {
-        reinterpret_cast<Rect&>(getLayer()->sourceCrop) = crop;
+    virtual void setCrop(const FloatRect& crop) {
+        if (hwcHasApiVersion(mHwc, HWC_DEVICE_API_VERSION_1_3)) {
+            getLayer()->sourceCropf = reinterpret_cast<hwc_frect_t const&>(crop);
+        } else {
+            /*
+             * Since h/w composer didn't support a flot crop rect before version 1.3,
+             * using integer coordinates instead produces a different output from the GL code in
+             * Layer::drawWithOpenGL(). The difference can be large if the buffer crop to
+             * window size ratio is large and a window crop is defined
+             * (i.e.: if we scale the buffer a lot and we also crop it with a window crop).
+             */
+            hwc_rect_t& r = getLayer()->sourceCrop;
+            r.left  = int(ceilf(crop.left));
+            r.top   = int(ceilf(crop.top));
+            r.right = int(floorf(crop.right));
+            r.bottom= int(floorf(crop.bottom));
+        }
     }
     virtual void setVisibleRegionScreen(const Region& reg) {
         // Region::getSharedBuffer creates a reference to the underlying
@@ -1406,14 +1414,14 @@ HWComposer::LayerListIterator HWComposer::getLayerIterator(int32_t id, size_t in
     }
 #ifdef OMAP_ENHANCEMENT
     return LayerListIterator(new HWCLayerVersion1(mHwc, disp.list->hwLayers, disp.listExt->hwLayers), index);
-#else    
+#else 	
     if (hwcHasApiVersion(mHwc, HWC_DEVICE_API_VERSION_1_0)) {
        return LayerListIterator(new HWCLayerVersion1(mHwc, disp.list->hwLayers), index);
     } else {
        hwc_layer_list_t* list0 = reinterpret_cast<hwc_layer_list_t*>(disp.list);
-    return LayerListIterator(new HWCLayerVersion0(list0->hwLayers), index);
+       return LayerListIterator(new HWCLayerVersion0(list0->hwLayers), index);
     }
-#endif    
+#endif	
 }
 
 /*
@@ -1445,7 +1453,7 @@ HWComposer::LayerListIterator HWComposer::end(int32_t id) {
     return getLayerIterator(id, numLayers);
 }
 
-void HWComposer::dump(String8& result, char* buffer, size_t SIZE) const {
+void HWComposer::dump(String8& result) const {
     if (mHwc) {
         result.appendFormat("Hardware Composer state (version %8x):\n", hwcApiVersion(mHwc));
         result.appendFormat("  mDebugForceFakeVSync=%d\n", mDebugForceFakeVSync);
@@ -1467,9 +1475,9 @@ void HWComposer::dump(String8& result, char* buffer, size_t SIZE) const {
                         disp.list->numHwLayers, disp.list->flags);
 
                 result.append(
-                        "    type    |  handle  |   hints  |   flags  | tr | blend |  format  |       source crop         |           frame           name \n"
-                        "------------+----------+----------+----------+----+-------+----------+---------------------------+--------------------------------\n");
-                //      " __________ | ________ | ________ | ________ | __ | _____ | ________ | [_____,_____,_____,_____] | [_____,_____,_____,_____]
+                        "    type    |  handle  |   hints  |   flags  | tr | blend |  format  |          source crop            |           frame           name \n"
+                        "------------+----------+----------+----------+----+-------+----------+---------------------------------+--------------------------------\n");
+                //      " __________ | ________ | ________ | ________ | __ | _____ | ________ | [_____._,_____._,_____._,_____._] | [_____,_____,_____,_____]
                 for (size_t i=0 ; i<disp.list->numHwLayers ; i++) {
                     const hwc_layer_1_t&l = disp.list->hwLayers[i];
                     int32_t format = -1;
@@ -1500,18 +1508,30 @@ void HWComposer::dump(String8& result, char* buffer, size_t SIZE) const {
                     if (type >= NELEM(compositionTypeName))
                         type = NELEM(compositionTypeName) - 1;
 
-                    result.appendFormat(
-                            " %10s | %08x | %08x | %08x | %02x | %05x | %08x | [%5d,%5d,%5d,%5d] | [%5d,%5d,%5d,%5d] %s\n",
-                                    compositionTypeName[type],
-                                    intptr_t(l.handle), l.hints, l.flags, l.transform, l.blending, format,
-                                    l.sourceCrop.left, l.sourceCrop.top, l.sourceCrop.right, l.sourceCrop.bottom,
-                                    l.displayFrame.left, l.displayFrame.top, l.displayFrame.right, l.displayFrame.bottom,
-                                    name.string());
+                    if (hwcHasApiVersion(mHwc, HWC_DEVICE_API_VERSION_1_3)) {
+                        result.appendFormat(
+                                " %10s | %08x | %08x | %08x | %02x | %05x | %08x | [%7.1f,%7.1f,%7.1f,%7.1f] | [%5d,%5d,%5d,%5d] %s\n",
+                                        compositionTypeName[type],
+                                        intptr_t(l.handle), l.hints, l.flags, l.transform, l.blending, format,
+                                        l.sourceCropf.left, l.sourceCropf.top, l.sourceCropf.right, l.sourceCropf.bottom,
+                                        l.displayFrame.left, l.displayFrame.top, l.displayFrame.right, l.displayFrame.bottom,
+                                        name.string());
+                    } else {
+                        result.appendFormat(
+                                " %10s | %08x | %08x | %08x | %02x | %05x | %08x | [%7d,%7d,%7d,%7d] | [%5d,%5d,%5d,%5d] %s\n",
+                                        compositionTypeName[type],
+                                        intptr_t(l.handle), l.hints, l.flags, l.transform, l.blending, format,
+                                        l.sourceCrop.left, l.sourceCrop.top, l.sourceCrop.right, l.sourceCrop.bottom,
+                                        l.displayFrame.left, l.displayFrame.top, l.displayFrame.right, l.displayFrame.bottom,
+                                        name.string());
+                    }
                 }
             }
         }
     }
     if (mHwc) {
+        const size_t SIZE = 4096;
+        char buffer[SIZE];
         hwcDump(mHwc, buffer, SIZE);
         result.append(buffer);
     }
@@ -1582,7 +1602,7 @@ HWComposer::DisplayData::DisplayData()
     capacity(0), list(NULL),
 #ifdef OMAP_ENHANCEMENT
     listExt(NULL), layerStack(0),
-#endif    
+#endif	
     framebufferTarget(NULL), fbTargetHandle(0),
     lastRetireFence(Fence::NO_FENCE), lastDisplayFence(Fence::NO_FENCE),
     outbufHandle(NULL), outbufAcquireFence(Fence::NO_FENCE),

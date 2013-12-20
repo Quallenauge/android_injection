@@ -1081,18 +1081,10 @@ void SurfaceFlinger::setUpHWComposer() {
                         hw->getVisibleLayersSortedByZ());
                     const size_t count = currentLayers.size();
                     if (hwc.createWorkList(id, count) == NO_ERROR) {
-#ifdef OMAP_ENHANCEMENT
-                        if (hwc.setLayerStack(id, hw->getLayerStack()) != NO_ERROR) {
-                            continue;
-                        }
-#endif					
                         HWComposer::LayerListIterator cur = hwc.begin(id);
                         const HWComposer::LayerListIterator end = hwc.end(id);
                         for (size_t i=0 ; cur!=end && i<count ; ++i, ++cur) {
                             const sp<Layer>& layer(currentLayers[i]);
-#ifdef OMAP_ENHANCEMENT
-                            layer->setIdentity(*cur);
-#endif							
                             layer->setGeometry(hw, *cur);
                             if (mDebugDisableHWC || mDebugRegion || mDaltonize) {
                                 cur->setSkip(true);
@@ -3140,15 +3132,8 @@ status_t SurfaceFlinger::captureScreenImplLocked(
 
     status_t result = NO_ERROR;
     if (native_window_api_connect(window, NATIVE_WINDOW_API_EGL) == NO_ERROR) {
-        uint32_t usage = GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN;
-#ifdef USE_OPENGLES_FOR_SCREEN_CAPTURE
-        // Make sure that HW_RENDER and HW_TEXTURE flags are used regardless of useReadPixels value
-        usage |= GRALLOC_USAGE_HW_RENDER | GRALLOC_USAGE_HW_TEXTURE;
-#else
-        if (!useReadPixels) {
-            usage |= GRALLOC_USAGE_HW_RENDER | GRALLOC_USAGE_HW_TEXTURE;
-        }
-#endif
+        uint32_t usage = GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN |
+                        GRALLOC_USAGE_HW_RENDER | GRALLOC_USAGE_HW_TEXTURE;
 
         int err = 0;
         err = native_window_set_buffers_dimensions(window, reqWidth, reqHeight);

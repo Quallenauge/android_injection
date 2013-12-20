@@ -147,13 +147,15 @@ public:
 
     virtual const char* getTypeId() const { return "Layer"; }
 
-#ifdef OMAP_ENHANCEMENT
-    virtual void setIdentity(HWComposer::HWCLayerInterface& layer);
-#endif
     /*
      * isOpaque - true if this surface is opaque
      */
     virtual bool isOpaque() const;
+
+    /*
+     * needsDithering - true if this surface needs dithering
+     */
+    virtual bool needsDithering() const     { return mNeedsDithering; }
 
     /*
      * isSecure - true if this surface is secure, that is if it prevents
@@ -343,6 +345,7 @@ private:
     mutable bool mDebug;
     PixelFormat mFormat;
     bool mOpaqueLayer;
+    bool mNeedsDithering;
 
     // these are protected by an external lock
     State mCurrentState;
@@ -379,9 +382,6 @@ private:
     // Set to true once we've returned this surface's handle
     mutable bool mHasSurface;
     const wp<Client> mClientRef;
-#ifdef OMAP_ENHANCEMENT
-    const uint32_t mIdentity;
-#endif	
 };
 
 // ---------------------------------------------------------------------------

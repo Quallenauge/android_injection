@@ -51,10 +51,6 @@
 
 #define DEBUG_RESIZE    0
 
-#ifdef OMAP_ENHANCEMENT
-static int32_t sIdentity = 1;
-#endif
-
 namespace android {
 
 // ---------------------------------------------------------------------------
@@ -72,6 +68,7 @@ Layer::Layer(SurfaceFlinger* flinger, const sp<Client>& client,
         mDebug(false),
         mFormat(PIXEL_FORMAT_NONE),
         mOpaqueLayer(true),
+        mNeedsDithering(false),
         mTransactionFlags(0),
         mQueuedFrames(0),
         mCurrentTransform(0),
@@ -85,10 +82,7 @@ Layer::Layer(SurfaceFlinger* flinger, const sp<Client>& client,
         mSecure(false),
         mProtectedByApp(false),
         mHasSurface(false),
-        mClientRef(client),
-#ifdef OMAP_ENHANCEMENT
-        mIdentity(uint32_t(android_atomic_inc(&sIdentity)))
-#endif
+        mClientRef(client)
 {
     mCurrentCrop.makeInvalid();
     mFlinger->getRenderEngine().genTextures(1, &mTextureName);
@@ -206,6 +200,12 @@ status_t Layer::setBuffers( uint32_t w, uint32_t h,
     mSurfaceFlingerConsumer->setDefaultBufferFormat(format);
     mSurfaceFlingerConsumer->setConsumerUsageBits(getEffectiveUsage(0));
 
+    if (mFlinger->getUseDithering()) {
+        int displayMinColorDepth = mFlinger->getMinColorDepth();
+        int layerMinColorDepth = minColorDepth(format);
+        mNeedsDithering = (layerMinColorDepth > displayMinColorDepth);
+    }
+
     return NO_ERROR;
 }
 
@@ -261,13 +261,6 @@ Rect Layer::getContentCrop() const {
     }
     return crop;
 }
-
-#ifdef OMAP_ENHANCEMENT
-void Layer::setIdentity(HWComposer::HWCLayerInterface& layer) {
-    layer.setIdentity(mIdentity);
-}
-#endif
-
 
 static Rect reduce(const Rect& win, const Region& exclude) {
     if (CC_LIKELY(exclude.isEmpty())) {
@@ -587,6 +580,7 @@ void Layer::clearWithOpenGL(const sp<const DisplayDevice>& hw, const Region& cli
 {
     RenderEngine& engine(mFlinger->getRenderEngine());
     computeGeometry(hw, mMesh);
+    engine.setDither(false);
     engine.setupFillWithColor(red, green, blue, alpha);
     engine.drawMesh(mMesh);
 }
@@ -633,6 +627,7 @@ void Layer::drawWithOpenGL(
     texCoords[3] = vec2(right, 1.0f - top);
 
     RenderEngine& engine(mFlinger->getRenderEngine());
+    engine.setDither(needsDithering());
     engine.setupLayerBlending(mPremultipliedAlpha, isOpaque(), s.alpha);
     engine.drawMesh(mMesh);
     engine.disableBlending();

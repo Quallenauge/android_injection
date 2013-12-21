@@ -154,6 +154,7 @@ SurfaceFlinger::SurfaceFlinger()
         mDebugInTransaction(0),
         mLastTransactionTime(0),
         mBootFinished(false),
+        mUseDithering(false),
         mPrimaryHWVsyncEnabled(false),
         mHWVsyncAvailable(false),
         mDaltonize(false)
@@ -570,6 +571,9 @@ void SurfaceFlinger::init() {
     ALOGI("Client API: %s", eglQueryString(mEGLDisplay, EGL_CLIENT_APIS)?:"Not Supported");
     ALOGI("EGLSurface: %d-%d-%d-%d, config=%p", r, g, b, a, mEGLConfig);
 
+    // assume red has minimum color depth
+    mMinColorDepth = r;
+
     // get a RenderEngine for the given display / config (can't fail)
     mRenderEngine = RenderEngine::create(mEGLDisplay, mEGLConfig);
 
@@ -607,6 +611,9 @@ void SurfaceFlinger::init() {
                 hw->acquireScreen();
             }
             mDisplays.add(token, hw);
+            if (!mUseDithering && bitsPerPixel(mHwc->getFormat(i)) <= 16) {
+                mUseDithering = true;
+            }
         }
     }
 
@@ -619,7 +626,7 @@ void SurfaceFlinger::init() {
             vsyncPhaseOffsetNs, true);
     mEventThread = new EventThread(vsyncSrc);
     sp<VSyncSource> sfVsyncSrc = new DispSyncSource(&mPrimaryDispSync,
-            sfVsyncPhaseOffsetNs, false);
+            sfVsyncPhaseOffsetNs, true);
     mSFEventThread = new EventThread(sfVsyncSrc);
     mEventQueue.setEventThread(mSFEventThread);
 
@@ -1081,10 +1088,18 @@ void SurfaceFlinger::setUpHWComposer() {
                         hw->getVisibleLayersSortedByZ());
                     const size_t count = currentLayers.size();
                     if (hwc.createWorkList(id, count) == NO_ERROR) {
+#ifdef OMAP_ENHANCEMENT
+                        if (hwc.setLayerStack(id, hw->getLayerStack()) != NO_ERROR) {
+                            continue;
+                        }
+#endif					
                         HWComposer::LayerListIterator cur = hwc.begin(id);
                         const HWComposer::LayerListIterator end = hwc.end(id);
                         for (size_t i=0 ; cur!=end && i<count ; ++i, ++cur) {
                             const sp<Layer>& layer(currentLayers[i]);
+#ifdef OMAP_ENHANCEMENT
+                            layer->setIdentity(*cur);
+#endif							
                             layer->setGeometry(hw, *cur);
                             if (mDebugDisableHWC || mDebugRegion || mDaltonize) {
                                 cur->setSkip(true);
@@ -1592,17 +1607,24 @@ void SurfaceFlinger::computeVisibleRegions(size_t dpy,
 
     outDirtyRegion.clear();
     bool bIgnoreLayers = false;
-    int extOnlyLayerIndex = -1;
+    int indexLOI = -1;
     size_t i = currentLayers.size();
 #ifdef QCOM_BSP
     while (i--) {
         const sp<Layer>& layer = currentLayers[i];
         // iterate through the layer list to find ext_only layers and store
         // the index
-        if ((dpy && layer->isExtOnly())) {
+        if (layer->isSecureDisplay()) {
             bIgnoreLayers = true;
-            extOnlyLayerIndex = i;
+            indexLOI = -1;
+            if(!dpy)
+                indexLOI = i;
             break;
+        }
+
+        if (dpy && layer->isExtOnly()) {
+            bIgnoreLayers = true;
+            indexLOI = i;
         }
     }
     i = currentLayers.size();
@@ -1617,7 +1639,9 @@ void SurfaceFlinger::computeVisibleRegions(size_t dpy,
         // Only add the layer marked as "external_only" to external list and
         // only remove the layer marked as "external_only" from primary list
         // and do not add the layer marked as "internal_only" to external list
-        if((bIgnoreLayers && extOnlyLayerIndex != (int)i) ||
+        // Add secure UI layers to primary and remove other layers from internal
+        //and external list
+        if((bIgnoreLayers && indexLOI != (int)i) ||
            (!dpy && layer->isExtOnly()) ||
            (dpy && layer->isIntOnly())) {
             // Ignore all other layers except the layers marked as ext_only
@@ -1928,6 +1952,9 @@ void SurfaceFlinger::doComposeSurfaces(const sp<const DisplayDevice>& hw, const 
                         layer->draw(hw, clip);
                         break;
                     }
+                    case HWC_BLIT:
+                        //Do nothing
+                        break;
                     case HWC_FRAMEBUFFER_TARGET: {
                         // this should not happen as the iterator shouldn't
                         // let us get there.
@@ -3088,6 +3115,12 @@ void SurfaceFlinger::renderScreenImplLocked(
         const Layer::State& state(layer->getDrawingState());
         if (state.layerStack == hw->getLayerStack()) {
             if (state.z >= minLayerZ && state.z <= maxLayerZ) {
+#ifdef QCOM_BSP
+                // dont render the secure Display Layer
+                if(layer->isSecureDisplay()) {
+                    continue;
+                }
+#endif
                 if (layer->isVisible()) {
                     if (filtering) layer->setFiltering(true);
                     layer->draw(hw);

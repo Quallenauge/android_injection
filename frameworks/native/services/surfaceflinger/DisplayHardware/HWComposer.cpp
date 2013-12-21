@@ -869,7 +869,7 @@ status_t HWComposer::prepare() {
 #endif		
         if (mLists[i]) {
             if (hwcHasApiVersion(mHwc, HWC_DEVICE_API_VERSION_1_3)) {
-                mLists[i]->outbuf = disp.outbufHandle;
+                mLists[i]->outbuf = NULL;
                 mLists[i]->outbufAcquireFenceFd = -1;
             } else if (hwcHasApiVersion(mHwc, HWC_DEVICE_API_VERSION_1_1)) {
                 // garbage data to catch improper use

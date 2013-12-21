@@ -51,6 +51,10 @@
 
 #define DEBUG_RESIZE    0
 
+#ifdef OMAP_ENHANCEMENT
+static int32_t sIdentity = 1;
+#endif
+
 namespace android {
 
 // ---------------------------------------------------------------------------
@@ -82,7 +86,10 @@ Layer::Layer(SurfaceFlinger* flinger, const sp<Client>& client,
         mSecure(false),
         mProtectedByApp(false),
         mHasSurface(false),
-        mClientRef(client)
+        mClientRef(client),
+#ifdef OMAP_ENHANCEMENT
+        mIdentity(uint32_t(android_atomic_inc(&sIdentity)))
+#endif
 {
     mCurrentCrop.makeInvalid();
     mFlinger->getRenderEngine().genTextures(1, &mTextureName);
@@ -261,6 +268,13 @@ Rect Layer::getContentCrop() const {
     }
     return crop;
 }
+
+#ifdef OMAP_ENHANCEMENT
+void Layer::setIdentity(HWComposer::HWCLayerInterface& layer) {
+    layer.setIdentity(mIdentity);
+}
+#endif
+
 
 static Rect reduce(const Rect& win, const Region& exclude) {
     if (CC_LIKELY(exclude.isEmpty())) {
@@ -444,7 +458,8 @@ void Layer::setAcquireFence(const sp<const DisplayDevice>& hw,
     // TODO: there is a possible optimization here: we only need to set the
     // acquire fence the first time a new buffer is acquired on EACH display.
 
-    if (layer.getCompositionType() == HWC_OVERLAY) {
+    if (layer.getCompositionType() == HWC_OVERLAY ||
+            layer.getCompositionType() == HWC_BLIT) {
         sp<Fence> fence = mSurfaceFlingerConsumer->getCurrentFence();
         if (fence->isValid()) {
             fenceFd = fence->dup();
@@ -1292,6 +1307,18 @@ bool Layer::isIntOnly() const
     }
     return false;
 }
+
+bool Layer::isSecureDisplay() const
+{
+    const sp<GraphicBuffer>& activeBuffer(mActiveBuffer);
+    if (activeBuffer != 0) {
+        uint32_t usage = activeBuffer->getUsage();
+        if(usage & GRALLOC_USAGE_PRIVATE_SECURE_DISPLAY)
+            return true;
+    }
+    return false;
+}
+
 #endif
 // ---------------------------------------------------------------------------
 }; // namespace android

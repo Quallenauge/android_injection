@@ -147,6 +147,9 @@ public:
 
     virtual const char* getTypeId() const { return "Layer"; }
 
+#ifdef OMAP_ENHANCEMENT
+    virtual void setIdentity(HWComposer::HWCLayerInterface& layer);
+#endif
     /*
      * isOpaque - true if this surface is opaque
      */
@@ -266,6 +269,7 @@ public:
 #ifdef QCOM_BSP
     virtual bool isExtOnly() const;
     virtual bool isIntOnly() const;
+    virtual bool isSecureDisplay() const;
 #endif
 
     /*
@@ -382,6 +386,9 @@ private:
     // Set to true once we've returned this surface's handle
     mutable bool mHasSurface;
     const wp<Client> mClientRef;
+#ifdef OMAP_ENHANCEMENT
+    const uint32_t mIdentity;
+#endif	
 };
 
 // ---------------------------------------------------------------------------

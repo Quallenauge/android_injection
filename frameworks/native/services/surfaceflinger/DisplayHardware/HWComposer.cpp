@@ -213,7 +213,7 @@ HWComposer::HWComposer(
 
     // Note: some devices may insist that the FB HAL be opened before HWC.
     int fberr = loadFbHalModule();
-    loadHwcModule();	
+    loadHwcModule();
 
 #ifdef OMAP_ENHANCEMENT
     // FB HAL must stay open independent of HWC API version. Closing FB HAL will
@@ -249,7 +249,7 @@ HWComposer::HWComposer(
             if (mHwc->registerProcs) {
                 mCBContext->hwc = this;
                 mCBContext->procs.invalidate = &hook_invalidate;
-                mCBContext->procs.vsync = &hook_vsync;	
+                mCBContext->procs.vsync = &hook_vsync;
 #ifdef OMAP_ENHANCEMENT
             mCBContext->procs.extension_cb = &hook_extension_cb;
 #endif
@@ -732,7 +732,8 @@ void HWComposer::eventControl(int disp, int event, int enabled) {
             break;
         case EVENT_ORIENTATION:
             // Orientation event
-            err = mHwc->eventControl(mHwc, disp, event, enabled);
+            if (hwcHasApiVersion(mHwc, HWC_DEVICE_API_VERSION_1_0))
+                err = hwcEventControl(mHwc, disp, event, enabled);
             break;
         default:
             ALOGW("eventControl got unexpected event %d (disp=%d en=%d)",
@@ -869,7 +870,7 @@ status_t HWComposer::prepare() {
 #endif		
         if (mLists[i]) {
             if (hwcHasApiVersion(mHwc, HWC_DEVICE_API_VERSION_1_3)) {
-                mLists[i]->outbuf = NULL;
+                mLists[i]->outbuf = disp.outbufHandle;
                 mLists[i]->outbufAcquireFenceFd = -1;
             } else if (hwcHasApiVersion(mHwc, HWC_DEVICE_API_VERSION_1_1)) {
                 // garbage data to catch improper use
@@ -907,10 +908,20 @@ status_t HWComposer::prepare() {
                         if (l.compositionType == HWC_FRAMEBUFFER) {
                             disp.hasFbComp = true;
                         }
+                        // If the composition type is BLIT, we set this to
+                        // trigger a FLIP
+                        if(l.compositionType == HWC_BLIT) {
+                            disp.hasFbComp = true;
+                        }
                         if (l.compositionType == HWC_OVERLAY) {
                             disp.hasOvComp = true;
                         }
                     }
+                    if (disp.list->numHwLayers == (disp.framebufferTarget ? 1 : 0)) {
+                        disp.hasFbComp = true;
+                    }
+                } else {
+                    disp.hasFbComp = true;
                 }
             }
         } else {
@@ -935,15 +946,8 @@ status_t HWComposer::prepare() {
                         disp.hasOvComp = true;
                     }
                 }
-                if (disp.list->numHwLayers == (disp.framebufferTarget ? 1 : 0)) {
-                    disp.hasFbComp = true;
-                }
-            } else {
-                disp.hasFbComp = true;
             }
-
         }
-
     }
     return (status_t)err;
 }
@@ -1234,7 +1238,18 @@ public:
         reinterpret_cast<Rect&>(getLayer()->displayFrame) = frame;
     }
     virtual void setCrop(const FloatRect& crop) {
-        reinterpret_cast<FloatRect&>(getLayer()->sourceCrop) = crop;
+        /*
+         * Since h/w composer didn't support a flot crop rect before version 1.3,
+         * using integer coordinates instead produces a different output from the GL code in
+         * Layer::drawWithOpenGL(). The difference can be large if the buffer crop to
+         * window size ratio is large and a window crop is defined
+         * (i.e.: if we scale the buffer a lot and we also crop it with a window crop).
+         */
+        hwc_rect_t& r = getLayer()->sourceCrop;
+        r.left  = int(ceilf(crop.left));
+        r.top   = int(ceilf(crop.top));
+        r.right = int(floorf(crop.right));
+        r.bottom= int(floorf(crop.bottom));
     }
     virtual void setVisibleRegionScreen(const Region& reg) {
         // Region::getSharedBuffer creates a reference to the underlying
@@ -1504,6 +1519,7 @@ void HWComposer::dump(String8& result) const {
                             "HWC",
                             "BACKGROUND",
                             "FB TARGET",
+                            "FB_BLIT",
                             "UNKNOWN"};
                     if (type >= NELEM(compositionTypeName))
                         type = NELEM(compositionTypeName) - 1;

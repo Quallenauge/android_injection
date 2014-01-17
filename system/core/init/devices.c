@@ -47,9 +47,9 @@
 #include "log.h"
 
 #define SYSFS_PREFIX    "/sys"
-#define FIRMWARE_DIR1   "/etc/firmware"
-#define FIRMWARE_DIR2   "/vendor/firmware"
-#define FIRMWARE_DIR3   "/firmware/image"
+#define FIRMWARE_DIR1   "/data/misc/firmware"
+#define FIRMWARE_DIR2   "/etc/firmware"
+#define FIRMWARE_DIR3   "/vendor/firmware"
 
 extern struct selabel_handle *sehandle;
 

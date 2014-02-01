@@ -15,7 +15,8 @@ LOCAL_SRC_FILES:= \
 	init_parser.c \
 	ueventd.c \
 	ueventd_parser.c \
-	watchdogd.c
+	watchdogd.c \
+	vendor_init.c
 
 ifeq ($(strip $(INIT_BOOTCHART)),true)
 LOCAL_SRC_FILES += bootchart.c
@@ -37,6 +38,10 @@ endif
 
 ifeq ($(BOARD_WANTS_EMMC_BOOT),true)
 LOCAL_CFLAGS += -DWANTS_EMMC_BOOT
+endif
+
+ifeq ($(BOARD_USE_NO_DEVFS_SETUP),true)
+LOCAL_CFLAGS += -DNO_DEVFS_SETUP
 endif
 
 SYSTEM_CORE_INIT_DEFINES := BOARD_CHARGING_MODE_BOOTING_LPM \
@@ -64,6 +69,10 @@ LOCAL_STATIC_LIBRARIES := \
 	libselinux \
 	libmincrypt \
 	libext4_utils_static
+
+ifneq ($(strip $(TARGET_INIT_VENDOR_LIB)),)
+LOCAL_WHOLE_STATIC_LIBRARIES += $(TARGET_INIT_VENDOR_LIB)
+endif
 
 include $(BUILD_EXECUTABLE)
 

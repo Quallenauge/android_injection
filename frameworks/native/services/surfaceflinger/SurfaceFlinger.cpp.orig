@@ -77,18 +77,9 @@
 
 #include "RenderEngine/RenderEngine.h"
 #include <cutils/compiler.h>
-#if defined(ENABLE_SWAPRECT) && defined(QCOM_BSP)
-#include "cb_swap_rect.h"
-#endif
 
 #ifdef SAMSUNG_HDMI_SUPPORT
 #include "SecTVOutService.h"
-#endif
-
-#ifdef ENABLE_SWAPRECT
-#define SWAPRECT_DEFAULT "1"
-#else
-#define SWAPRECT_DEFAULT "0"
 #endif
 
 #define DISPLAY_COUNT       1
@@ -202,7 +193,7 @@ SurfaceFlinger::SurfaceFlinger()
 #endif
 #endif
 
-    property_get("debug.sf.swaprect", value, SWAPRECT_DEFAULT);
+    property_get("debug.sf.swaprect", value, "1");
     mSwapRectEnable = atoi(value) ? true:false ;
 }
 
@@ -3434,15 +3425,8 @@ void SurfaceFlinger::setupSwapRect()
     HWComposer& hwc(getHwComposer());
     const LayerVector& currentLayers(mDrawingState.layersSortedByZ);
     size_t count = currentLayers.size();
-#if defined(ENABLE_SWAPRECT) && defined(QCOM_BSP)
-    qdutils::cb_swap_rect::getInstance().setSwapRectFeature_on(false);
-#endif
-    hwc.setSwapRectOn(false);
-    /*
-     * swap rect is enabled if swaprect property is set
-     * and it is blit composition
-     */
-    if (mSwapRectEnable && hwc.hasBlitComposition(HWC_DISPLAY_PRIMARY)) {
+
+    if (mSwapRectEnable && hwc.hasHwcComposition(HWC_DISPLAY_PRIMARY)) {
         int  totalDirtyRects = 0;
         Region consolidateVisibleRegion;
         Rect swapDirtyRect(Rect(0,0,0,0));
@@ -3475,13 +3459,9 @@ void SurfaceFlinger::setupSwapRect()
         //If SwapRect is enabled, dirtyLayerIdx would be set to the layer's idx
         if(dirtyLayerIdx != -1)  {
             /*
-             * Create dirty layer work list to be used by HWComposer instead of
-             * visible layer work list
-             */
-#if defined(ENABLE_SWAPRECT) && defined(QCOM_BSP)
-           qdutils::cb_swap_rect::getInstance().setSwapRectFeature_on(true);
-#endif
-            hwc.setSwapRectOn(true);
+            * Create dirty layer work list to be used by HWComposer instead of
+            * visible layer work list
+            */
             hwc.setSwapRect(swapDirtyRect);
             invalidateHwcGeometry();
         }

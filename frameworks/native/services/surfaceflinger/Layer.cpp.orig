@@ -87,7 +87,7 @@ Layer::Layer(SurfaceFlinger* flinger, const sp<Client>& client,
         mProtectedByApp(false),
         mHasSurface(false),
         mClientRef(client),
-        mDirtyRectRepeatCount(0),
+        mDirtyRectRepeatCount(0)
 #ifdef OMAP_ENHANCEMENT
         mIdentity(uint32_t(android_atomic_inc(&sIdentity)))
 #endif

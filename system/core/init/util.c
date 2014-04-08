@@ -25,6 +25,7 @@
 #include <ftw.h>
 
 #include <selinux/label.h>
+#include <selinux/android.h>
 
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -498,37 +499,12 @@ int make_dir(const char *path, mode_t mode)
     return rc;
 }
 
-int restorecon(const char *pathname)
+int restorecon(const char* pathname)
 {
-    char *secontext = NULL;
-    struct stat sb;
-    int i;
-
-    if (is_selinux_enabled() <= 0 || !sehandle)
-        return 0;
-
-    if (lstat(pathname, &sb) < 0)
-        return -errno;
-    if (selabel_lookup(sehandle, &secontext, pathname, sb.st_mode) < 0)
-        return -errno;
-    if (lsetfilecon(pathname, secontext) < 0) {
-        freecon(secontext);
-        return -errno;
-    }
-    freecon(secontext);
-    return 0;
-}
-
-static int nftw_restorecon(const char* filename, const struct stat* statptr,
-    int fileflags, struct FTW* pftw)
-{
-    restorecon(filename);
-    return 0;
+    return selinux_android_restorecon(pathname, 0);
 }
 
 int restorecon_recursive(const char* pathname)
 {
-    int fd_limit = 20;
-    int flags = FTW_DEPTH | FTW_MOUNT | FTW_PHYS;
-    return nftw(pathname, nftw_restorecon, fd_limit, flags);
+    return selinux_android_restorecon(pathname, SELINUX_ANDROID_RESTORECON_RECURSE);
 }

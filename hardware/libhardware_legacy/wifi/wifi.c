@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 #include <stdlib.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -322,7 +323,7 @@ int wifi_load_driver()
         if (property_get(DRIVER_PROP_NAME, driver_status, NULL)) {
             if (strcmp(driver_status, "ok") == 0)
                 return 0;
-            else if (strcmp(DRIVER_PROP_NAME, "failed") == 0) {
+            else if (strcmp(driver_status, "failed") == 0) {
                 wifi_unload_driver();
                 return -1;
             }

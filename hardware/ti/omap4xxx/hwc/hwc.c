@@ -171,7 +171,7 @@ int set_best_hdmi_mode(omap_hwc_device_t *hwc_dev, int disp, uint32_t xres, uint
         if (mode->flag & (FB_FLAG_RATIO_4_3 | FB_FLAG_RATIO_16_9))
             score = 1;
 	
-	if (d.modedb[i].flag & FB_FLAG_PREFERRED)
+	if (mode->flag & FB_FLAG_PREFERRED)
 	    score = 2;
 
         /* prefer the same mode as we use for mirroring to avoid mode change */
@@ -180,8 +180,8 @@ int set_best_hdmi_mode(omap_hwc_device_t *hwc_dev, int disp, uint32_t xres, uint
         score = add_scaling_score(score, xres, yres, 60, ext_fb_xres, ext_fb_yres,
                                   mode_xres, mode_yres, mode->refresh ? : 1);
 
-        ALOGD("#%d: %dx%d %dHz%s", i, mode_xres, mode_yres, d.modedb[i].refresh,
-	     (d.modedb[i].flag & FB_FLAG_PREFERRED) ? " (preferred)" : "");
+        ALOGD("#%d: %dx%d %dHz%s", i, mode_xres, mode_yres, mode->refresh,
+	     (mode->flag & FB_FLAG_PREFERRED) ? " (preferred)" : "");
         if (debug)
             ALOGD("  score=0x%x adj.res=%dx%d", score, ext_fb_xres, ext_fb_yres);
         if (best_score < score) {

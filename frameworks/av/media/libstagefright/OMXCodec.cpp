@@ -692,7 +692,7 @@ status_t OMXCodec::configureCodec(const sp<MetaData> &meta) {
             }
 #endif
             addCodecSpecificData(data, size);
-#ifdef QCOM_HARDWARE
+#if (defined QCOM_HARDWARE) || (defined OMAP_ENHANCEMENT)
         } else {
             ExtendedCodec::getRawCodecSpecificData(meta, data, size);
             if (size) {

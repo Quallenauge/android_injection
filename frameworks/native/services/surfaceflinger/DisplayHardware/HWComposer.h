@@ -114,8 +114,6 @@ public:
     // create a work list for numLayers layer. sets HWC_GEOMETRY_CHANGED.
     status_t createWorkList(int32_t id, size_t numLayers);
 
-    void setSwapRectOn(bool);
-    void setSwapRect(Rect);
 #ifdef OMAP_ENHANCEMENT
     status_t setLayerStack(int32_t id, uint32_t stack);
 #endif	
@@ -124,10 +122,17 @@ public:
 
     // does this display have layers handled by HWC
     bool hasHwcComposition(int32_t id) const;
-    bool hasBlitComposition(int32_t id) const;
 
     // does this display have layers handled by GLES
     bool hasGlesComposition(int32_t id) const;
+
+#ifdef QCOM_BSP
+    // does this display have layers handled by overlays/blit
+    bool hasHwcOrBlitComposition(int32_t id) const;
+
+    //GPUTiledRect : function to find out if DR can be used in GPU Comp.
+    bool canUseTiledDR(int32_t id, Rect& dr);
+#endif
 
     // get the releaseFence file descriptor for a display's framebuffer layer.
     // the release fence is only valid after commit()
@@ -346,8 +351,10 @@ private:
         nsecs_t refresh;
         bool connected;
         bool hasFbComp;
-        bool hasBlitComp;
         bool hasOvComp;
+#ifdef QCOM_BSP
+        bool hasBlitComp;
+#endif
         size_t capacity;
         hwc_display_contents_1* list;
 #ifdef OMAP_ENHANCEMENT
@@ -390,7 +397,6 @@ private:
     sp<VSyncThread>                 mVSyncThread;
     bool                            mDebugForceFakeVSync;
     BitSet32                        mAllocatedDisplayIDs;
-    bool                            mSwapRectOn;
     bool                            mVDSEnabled;
 
     // protected by mLock
@@ -399,6 +405,14 @@ private:
 
     // thread-safe
     mutable Mutex mEventControlLock;
+
+#ifdef QCOM_BSP
+    //GPUTileRect Optimization Functions.
+    bool isGeometryChanged(int32_t id);
+    void computeUnionDirtyRect(int32_t id, Rect& unionDirtyRect);
+    bool areVisibleRegionsOverlapping(int32_t id );
+    bool needsScaling(int32_t id);
+#endif
 };
 
 // ---------------------------------------------------------------------------

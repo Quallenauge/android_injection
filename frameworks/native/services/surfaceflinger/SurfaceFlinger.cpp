@@ -1547,7 +1547,8 @@ void SurfaceFlinger::handleTransactionLocked(uint32_t transactionFlags)
 #ifdef QCOM_B_FAMILY
                             // Set the view frame of each display only of its
                             // default orientation.
-                            if(orient == DisplayState::eOrientationDefault) {
+                            if(orient == DisplayState::eOrientationDefault and
+                                    state.frame.isValid()) {
                                 qdutils::setViewFrame(disp->getHwcDisplayId(),
                                     state.frame.left, state.frame.top,
                                     state.frame.right, state.frame.bottom);
@@ -2020,6 +2021,7 @@ void SurfaceFlinger::doComposeSurfaces(const sp<const DisplayDevice>& hw, const 
 
     Region clearRegion;
     bool hasGlesComposition = hwc.hasGlesComposition(id);
+    const bool hasHwcComposition = hwc.hasHwcComposition(id);
     if (hasGlesComposition) {
         if (!hw->makeCurrent(mEGLDisplay, mEGLContext)) {
             ALOGW("DisplayDevice::makeCurrent failed. Aborting surface composition for display %s",
@@ -2028,14 +2030,14 @@ void SurfaceFlinger::doComposeSurfaces(const sp<const DisplayDevice>& hw, const 
         }
 
         // Never touch the framebuffer if we don't have any framebuffer layers
-        const bool hasHwcComposition = hwc.hasHwcComposition(id);
         if (hasHwcComposition) {
             // when using overlays, we assume a fully transparent framebuffer
             // NOTE: we could reduce how much we need to clear, for instance
             // remove where there are opaque FB layers. however, on some
             // GPUs doing a "clean slate" clear might be more efficient.
             // We'll revisit later if needed.
-            engine.clearWithColor(0, 0, 0, 0);
+            if(!(mGpuTileRenderEnable && (mDisplays.size()==1)))
+                engine.clearWithColor(0, 0, 0, 0);
         } else {
             // we start with the whole screen area
             const Region bounds(hw->getBounds());
@@ -2126,9 +2128,21 @@ void SurfaceFlinger::doComposeSurfaces(const sp<const DisplayDevice>& hw, const 
                 hw->eglSwapPreserved(false);
             }
             // DrawWormHole/Any Draw has to be within startTile & EndTile
-            if (cur->getCompositionType() != HWC_BLIT &&
-                  !clearRegion.isEmpty()){
-                drawWormhole(hw, clearRegion);
+            if (hasHwcComposition) {
+                if(mCanUseGpuTileRender && !mUnionDirtyRect.isEmpty()) {
+                    const Rect& scissor(mUnionDirtyRect);
+                    engine.setScissor(scissor.left, hw->getHeight()- scissor.bottom,
+                    scissor.getWidth(), scissor.getHeight());
+                    engine.clearWithColor(0, 0, 0, 0);
+                    engine.disableScissor();
+                } else {
+                    engine.clearWithColor(0, 0, 0, 0);
+                }
+            } else {
+                if (cur->getCompositionType() != HWC_BLIT &&
+                      !clearRegion.isEmpty()){
+                    drawWormhole(hw, clearRegion);
+                }
             }
         }
 #endif

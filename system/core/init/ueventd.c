@@ -32,6 +32,7 @@
 
 static char hardware[32];
 static unsigned revision = 0;
+char bootdevice[32];
 
 static void import_kernel_nv(char *name, int in_qemu)
 {
@@ -42,6 +43,10 @@ static void import_kernel_nv(char *name, int in_qemu)
             if (!strcmp(name,"androidboot.hardware"))
             {
                 strlcpy(hardware, value, sizeof(hardware));
+            }
+            else if (!strcmp(name,"androidboot.bootdevice"))
+            {
+                strlcpy(bootdevice, value, sizeof(bootdevice));
             }
         }
     }
@@ -94,7 +99,7 @@ int ueventd_main(int argc, char **argv)
         nr = poll(&ufd, 1, -1);
         if (nr <= 0)
             continue;
-        if (ufd.revents == POLLIN)
+        if (ufd.revents & POLLIN)
                handle_device_fd();
     }
 }

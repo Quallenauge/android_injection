@@ -1,8 +1,5 @@
 /* asoundlib.h
 **
-** Copyright (c) 2013, The Linux Foundation. All rights reserved.
-** Not a contribution.
-**
 ** Copyright 2011, The Android Open Source Project
 **
 ** Redistribution and use in source and binary forms, with or without
@@ -73,12 +70,19 @@ struct pcm;
 
 /* Bit formats */
 enum pcm_format {
-    PCM_FORMAT_S16_LE = 0,
-    PCM_FORMAT_S32_LE,
-    PCM_FORMAT_S8,
-    PCM_FORMAT_S24_LE,
+    PCM_FORMAT_INVALID = -1,
+    PCM_FORMAT_S16_LE = 0,  /* 16-bit signed */
+    PCM_FORMAT_S32_LE,      /* 32-bit signed */
+    PCM_FORMAT_S8,          /* 8-bit signed */
+    PCM_FORMAT_S24_LE,      /* 24-bits in 4-bytes */
+    PCM_FORMAT_S24_3LE,     /* 24-bits in 3-bytes */
 
     PCM_FORMAT_MAX,
+};
+
+/* Bitmask has 256 bits (32 bytes) in asound.h */
+struct pcm_mask {
+    unsigned int bits[32 / sizeof(unsigned int)];
 };
 
 /* Configuration for a stream */
@@ -111,6 +115,11 @@ struct pcm_config {
 /* PCM parameters */
 enum pcm_param
 {
+    /* mask parameters */
+    PCM_PARAM_ACCESS,
+    PCM_PARAM_FORMAT,
+    PCM_PARAM_SUBFORMAT,
+    /* interval parameters */
     PCM_PARAM_SAMPLE_BITS,
     PCM_PARAM_FRAME_BITS,
     PCM_PARAM_CHANNELS,
@@ -144,6 +153,8 @@ enum mixer_ctl_type {
 int mixer_get_card_name(int card, char *str, size_t strlen);
 #endif
 
+
+
 /* Open and close a stream */
 struct pcm *pcm_open(unsigned int card, unsigned int device,
                      unsigned int flags, struct pcm_config *config);
@@ -154,10 +165,32 @@ int pcm_is_ready(struct pcm *pcm);
 struct pcm_params *pcm_params_get(unsigned int card, unsigned int device,
                                   unsigned int flags);
 void pcm_params_free(struct pcm_params *pcm_params);
+
+struct pcm_mask *pcm_params_get_mask(struct pcm_params *pcm_params,
+                                     enum pcm_param param);
 unsigned int pcm_params_get_min(struct pcm_params *pcm_params,
                                 enum pcm_param param);
+void pcm_params_set_min(struct pcm_params *pcm_params,
+                                enum pcm_param param, unsigned int val);
 unsigned int pcm_params_get_max(struct pcm_params *pcm_params,
                                 enum pcm_param param);
+void pcm_params_set_max(struct pcm_params *pcm_params,
+                                enum pcm_param param, unsigned int val);
+
+/* Converts the pcm parameters to a human readable string.
+ * The string parameter is a caller allocated buffer of size bytes,
+ * which is then filled up to size - 1 and null terminated,
+ * if size is greater than zero.
+ * The return value is the number of bytes copied to string
+ * (not including null termination) if less than size; otherwise,
+ * the number of bytes required for the buffer.
+ */
+int pcm_params_to_string(struct pcm_params *params, char *string, unsigned int size);
+
+/* Returns 1 if the pcm_format is present (format bit set) in
+ * the pcm_params structure; 0 otherwise, or upon unrecognized format.
+ */
+int pcm_params_format_test(struct pcm_params *params, enum pcm_format format);
 
 /* Set and get config */
 int pcm_get_config(struct pcm *pcm, struct pcm_config *config);
@@ -208,12 +241,16 @@ int pcm_mmap_begin(struct pcm *pcm, void **areas, unsigned int *offset,
                    unsigned int *frames);
 int pcm_mmap_commit(struct pcm *pcm, unsigned int offset, unsigned int frames);
 
+/* Prepare the PCM substream to be triggerable */
+int pcm_prepare(struct pcm *pcm);
 /* Start and stop a PCM channel that doesn't transfer data */
 int pcm_start(struct pcm *pcm);
 int pcm_stop(struct pcm *pcm);
 
+#ifdef OMAP_ENHANCEMENT
 /* ioctl function for PCM driver */
 int pcm_ioctl(struct pcm *pcm, int request, ...);
+#endif
 
 /* Interrupt driven API */
 int pcm_wait(struct pcm *pcm, int timeout);

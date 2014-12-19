@@ -872,7 +872,9 @@ static const audio_offload_info_t AUDIO_INFO_INITIALIZER = {
     bit_rate: 0,
     duration_us: 0,
     has_video: false,
-    is_streaming: false
+    is_streaming: false,
+    bit_width: 16,
+    use_small_bufs: false,
 };
 
 /* common audio stream configuration parameters
@@ -1508,12 +1510,14 @@ static inline size_t audio_bytes_per_sample(audio_format_t format)
     switch (format) {
     case AUDIO_FORMAT_PCM_32_BIT:
     case AUDIO_FORMAT_PCM_8_24_BIT:
+    case AUDIO_FORMAT_PCM_24_BIT_OFFLOAD:
         size = sizeof(int32_t);
         break;
     case AUDIO_FORMAT_PCM_24_BIT_PACKED:
         size = sizeof(uint8_t) * 3;
         break;
     case AUDIO_FORMAT_PCM_16_BIT:
+    case AUDIO_FORMAT_PCM_16_BIT_OFFLOAD:
         size = sizeof(int16_t);
         break;
     case AUDIO_FORMAT_PCM_8_BIT:

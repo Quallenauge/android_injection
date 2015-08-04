@@ -303,7 +303,7 @@ int do_exec(int nargs, char **args)
        ERROR("Error while forking a process when executing a command '%s'.", par[0]);
     }
 
-    if (!pid)
+    if (pid == 0)
     {
         char tmp[32];
         int fd, sz;
@@ -315,7 +315,7 @@ int do_exec(int nargs, char **args)
         execve(par[0], par, environ);
         exit(0);
     }
-    else
+    else if (pid > 0)
     {
         INFO("Waiting for finish the executed command '%s'.", par[0]);
         while(wait(&status)!=pid);
@@ -1018,8 +1018,3 @@ int do_wait(int nargs, char **args)
     } else
         return -1;
 }
-
-int do_umount(int nargs, char **args) {
-    return umount(args[1]);
-}
-
